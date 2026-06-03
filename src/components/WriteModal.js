@@ -22,21 +22,6 @@ export default function WriteModal({ emp, form, onClose, show }) {
     const nsTotal   = form.ess.reduce((a, r) => a + (parseFloat(r.ns_amount) || 0), 0);
     const taTotal   = form.ta.reduce((a,  r) => a + (parseFloat(r.amount)  || 0), 0);
 
-    const fmtOt = (rows) => rows.filter(r => r.date && r.tstart && r.tend).map(r => {
-      const mm = r.date.slice(5).replace("-", "");
-      const ts = r.tstart.replace(":", "");
-      const te = r.tend.replace(":", "");
-      const h  = r.hours ? `_${r.hours}hrs` : "";
-      return `${mm}_${ts}-${te}${h}`;
-    }).join("  ");
-
-    const fmtLeave = (rows) => rows.filter(r => r.dates).map(r => {
-      const ds    = r.dates.trim().split(/\s+/).join(", ");
-      const hrs   = r.hours ? `_${r.hours} ` : "_";
-      const label = r.type === "other" && r.reason ? r.reason : (r.type || "leave");
-      return `${ds}${hrs}${label}`;
-    }).join("  ");
-
     const fmtDates = (rows) => rows.filter(r => r.from_date).map(r =>
       r.from_date === r.to_date ? r.from_date.slice(5).replace("-", "") :
       `${r.from_date.slice(5).replace("-","")}~${r.to_date.slice(5).replace("-","")}`
