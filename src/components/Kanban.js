@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { scanInbox, importFiles, getEmployeeFiles } from "../api";
+import { scanInbox, importFiles } from "../api";
 import { useToast, useApi } from "../hooks";
 import RightPanel from "./RightPanel";
 
