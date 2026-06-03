@@ -187,13 +187,14 @@ export default function Kanban(){
 
   const openFile=async(f)=>{
     if(!selEmp)return;
+    const fp = f.path || f.name;  // use full relative path (includes period subdir)
     if(f.type==="eml"){
-      try{const d=await previewEml(selEmp.en,f.name);setModal({type:"eml",name:f.name,data:d});}
+      try{const d=await previewEml(selEmp.en,fp);setModal({type:"eml",name:f.name,data:d});}
       catch{show("無法預覽此 eml","err");}
     }else if(f.type==="pdf"){
-      setModal({type:"pdf",name:f.name,url:previewFileUrl(selEmp.en,f.name)});
+      setModal({type:"pdf",name:f.name,url:previewFileUrl(selEmp.en,fp)});
     }else{
-      setModal({type:"xlsx",name:f.name,url:previewFileUrl(selEmp.en,f.name)});
+      setModal({type:"xlsx",name:f.name,url:previewFileUrl(selEmp.en,fp)});
     }
   };
 
@@ -731,7 +732,7 @@ function SecBlock({id,title,checked,onToggle,onAdd,badge,children}){
 function ClearModal({onClose, show, onDone}){
   const [step, setStep] = useState("confirm"); // confirm | clearing | done
   const [choice, setChoice] = useState("all");
-  const {loading, run} = useApi();
+  const {run} = useApi();
   const doDelete = () => {
     setStep("clearing");
     const fn = choice==="all" ? clearAll

@@ -44,14 +44,14 @@ export const importFiles     = (files)         => {
   return req("POST", "/api/import-files", fd, true);
 };
 export const getEmployeeFiles = (empEn)        => req("GET", `/api/employee-files/${encodeURIComponent(empEn)}`);
-export const previewFileUrl   = (empEn, fname) => `${BASE}/api/preview-file/${encodeURIComponent(empEn)}/${encodeURIComponent(fname)}`;
+export const previewFileUrl   = (empEn, filePath) => `${BASE}/api/preview-file/${encodeURIComponent(empEn)}/${filePath.split("/").map(encodeURIComponent).join("/")}`;
 export const downloadZip      = (empEn)        => req("GET", `/api/download-zip/${encodeURIComponent(empEn)}`);
 export const downloadAllZip   = ()             => req("GET", "/api/download-all-zip");
 
 // ── EML ──────────────────────────────────────────────────────────
-export const previewEml        = (empEn, fname) => req("GET", `/api/eml/preview/${encodeURIComponent(empEn)}/${encodeURIComponent(fname)}`);
-export const attachmentUrl     = (empEn, fname, att) =>
-  `${BASE}/api/eml/attachment/${encodeURIComponent(empEn)}/${encodeURIComponent(fname)}/${encodeURIComponent(att)}`;
+export const previewEml        = (empEn, filePath) => req("GET", `/api/eml/preview/${encodeURIComponent(empEn)}/${filePath.split("/").map(encodeURIComponent).join("/")}`);
+export const attachmentUrl     = (empEn, filePath, att) =>
+  `${BASE}/api/eml/attachment/${encodeURIComponent(empEn)}/${filePath.split("/").map(encodeURIComponent).join("/")}/${encodeURIComponent(att)}`;
 
 // ── Submit (write to Excel) ───────────────────────────────────────
 export const submitData = (payloadJson, templateFile) => {
@@ -174,7 +174,7 @@ export const moveFile = (empEn, filePath, targetEmp, targetPeriod="", copy=false
   fd.append("file_path", filePath);
   fd.append("target_emp", targetEmp);
   fd.append("target_period", targetPeriod);
-  fd.append("copy", copy);
+  fd.append("do_copy", copy);
   return req("POST", "/api/move-file", fd, true);
 };
 export const uploadToEmployee = (empEn, period, files) => {
