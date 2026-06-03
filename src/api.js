@@ -33,6 +33,11 @@ export const importPeople   = (file)     => {
 
 // ── Scan & Files ─────────────────────────────────────────────────
 export const scanInbox       = ()              => req("POST", "/api/scan-and-classify");
+export const importFilesForce = (files) => {
+  const fd = new FormData();
+  files.forEach(f => fd.append("files", f));
+  return req("POST", "/api/import-files-force", fd, true);
+};
 export const importFiles     = (files)         => {
   const fd = new FormData();
   files.forEach(f => fd.append("files", f));
