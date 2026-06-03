@@ -481,7 +481,7 @@ function FilesTab({ emp, files, setFiles, onOpen, onDlZip, onDlAll, onDelete, al
   const [moveCopy, setMoveCopy] = useState(false);
   const [moveSearch, setMoveSearch] = useState("");
   const [uploading, setUploading] = useState(false);
-  const { loading, run } = useApi();
+  const {run} = useApi();
 
   const doMove = () => {
     if (!moveTarget) return;
