@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { scanInboxWithPeriod, importFiles, getEmployeeFiles, previewFileUrl, previewEml,
-         downloadBlob, attachmentUrl } from "../api";
+         downloadZip, downloadAllZip, downloadBlob, attachmentUrl } from "../api";
 import { useToast, useApi, useDropdown } from "../hooks";
 import WriteModal from "./WriteModal";
 import DownloadModal from "./DownloadModal";
