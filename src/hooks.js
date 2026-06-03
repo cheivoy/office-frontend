@@ -1,0 +1,29 @@
+import { useState, useCallback } from "react";
+
+export function useToast() {
+  const [toast, setToast] = useState(null);
+  const show = useCallback((msg, type = "info") => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 3000);
+  }, []);
+  const Toast = toast ? (
+    <div className={`toast ${toast.type === "err" ? "err" : ""}`}>{toast.msg}</div>
+  ) : null;
+  return { show, Toast };
+}
+
+export function useApi() {
+  const [loading, setLoading] = useState(false);
+  const run = useCallback(async (fn, onSuccess, onError) => {
+    setLoading(true);
+    try {
+      const result = await fn();
+      onSuccess && onSuccess(result);
+    } catch (e) {
+      onError && onError(e.message || "發生錯誤");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+  return { loading, run };
+}
