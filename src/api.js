@@ -98,3 +98,62 @@ export function downloadBlob(blob, filename) {
   a.href = url; a.download = filename; a.click();
   URL.revokeObjectURL(url);
 }
+
+// ── Batch Write ──────────────────────────────────────────────────
+export const batchWriteChtNokia = (period, formsJson) => {
+  const fd = new FormData();
+  fd.append("period", period);
+  fd.append("forms_json", JSON.stringify(formsJson));
+  return req("POST", "/api/batch-write/cht-nokia", fd, true);
+};
+export const batchWriteChtDk = (period, formsJson) => {
+  const fd = new FormData();
+  fd.append("period", period);
+  fd.append("forms_json", JSON.stringify(formsJson));
+  return req("POST", "/api/batch-write/cht-dk", fd, true);
+};
+export const batchWriteWipro = (period, sheetName, formsJson, templateFile) => {
+  const fd = new FormData();
+  fd.append("period", period);
+  fd.append("sheet_name", sheetName);
+  fd.append("forms_json", JSON.stringify(formsJson));
+  fd.append("template", templateFile);
+  return req("POST", "/api/batch-write/wipro", fd, true);
+};
+export const batchWriteProjectF = (period, formsJson, templateFile) => {
+  const fd = new FormData();
+  fd.append("period", period);
+  fd.append("forms_json", JSON.stringify(formsJson));
+  fd.append("template", templateFile);
+  return req("POST", "/api/batch-write/project-f", fd, true);
+};
+export const batchWriteNokiaCost = (period, sheetName, formsJson, templateFile) => {
+  const fd = new FormData();
+  fd.append("period", period);
+  fd.append("sheet_name", sheetName);
+  fd.append("forms_json", JSON.stringify(formsJson));
+  fd.append("template", templateFile);
+  return req("POST", "/api/batch-write/nokia-cost", fd, true);
+};
+
+// ── xlsx Preview ─────────────────────────────────────────────────
+export const previewXlsxUrl = (empEn, filePath) =>
+  `${BASE}/api/preview-xlsx/${encodeURIComponent(empEn)}/${encodeURIComponent(filePath)}`;
+
+// ── Download filtered ────────────────────────────────────────────
+export const downloadFiltered = (q, period, ids) => {
+  const params = new URLSearchParams();
+  if (q)      params.set("q", q);
+  if (period) params.set("period", period);
+  if (ids)    params.set("ids", ids);
+  return req("GET", `/api/download-filtered?${params}`);
+};
+
+export const getPeriods = () => req("GET", "/api/periods");
+
+// ── Scan with period ─────────────────────────────────────────────
+export const scanInboxWithPeriod = (period) => {
+  const fd = new FormData();
+  fd.append("period", period);
+  return req("POST", "/api/scan-and-classify", fd, true);
+};

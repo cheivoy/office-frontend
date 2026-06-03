@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { scanInbox, importFiles, getEmployeeFiles, previewFileUrl, previewEml,
-         downloadZip, downloadAllZip, downloadBlob, attachmentUrl } from "../api";
+import { scanInboxWithPeriod, importFiles, getEmployeeFiles, previewFileUrl, previewEml,
+         downloadBlob, attachmentUrl } from "../api";
 import { useToast, useApi, useDropdown } from "../hooks";
 import WriteModal from "./WriteModal";
+import DownloadModal from "./DownloadModal";
 import VerifyModal from "./VerifyModal";
 
 const COLS=[
@@ -44,7 +45,8 @@ export default function Kanban(){
   const[filt,setFilt]=useState({proj:null,unit:null,pm:null});
   const[q,setQ]=useState("");
   const[sortMode,setSortMode]=useState("name");
-  const[df,setDf]=useState("");
+  const[df,setDf]=useState(""); // month period filter
+  // eslint-disable-next-line no-unused-vars
   const[dt,setDt]=useState("");
   const[selId,setSelId]=useState(null);
   const[curRT,setCurRT]=useState("files");
@@ -53,6 +55,7 @@ export default function Kanban(){
   const[files,setFiles]=useState([]);
   const[modal,setModal]=useState(null);
   const[rpOpen,setRpOpen]=useState(false);
+  const[period,setPeriod]=useState("P05");
   const{show,Toast}=useToast();
   const{loading,run}=useApi();
   const writeDD=useDropdown();
@@ -61,7 +64,7 @@ export default function Kanban(){
   useEffect(()=>{handleScan();},[]);// eslint-disable-line
 
   const handleScan=()=>run(
-    ()=>scanInbox(),
+    ()=>scanInboxWithPeriod(`${new Date().getFullYear()}-${period}`),
     res=>{setKanban(res.kanban||[]);show("掃描完成","ok");},
     e=>show(`掃描失敗：${e}`,"err")
   );
@@ -81,8 +84,8 @@ export default function Kanban(){
     if(filt.unit)list=list.filter(e=>(e.unit||"—")===filt.unit);
     if(filt.pm)list=list.filter(e=>e.pm===filt.pm);
     if(q){const ql=q.toLowerCase();list=list.filter(e=>(e.cn+e.en).toLowerCase().includes(ql));}
-    if(df)list=list.filter(e=>e.uploadDate>=df);
-    if(dt)list=list.filter(e=>e.uploadDate<=dt);
+    // df is now used as period filter (e.g. "P05")
+    if(df)list=list.filter(e=>(e.periods||[]).some(p=>p.endsWith(df)));
     if(sortMode==="name")list.sort((a,b)=>(a.cn||a.en).localeCompare(b.cn||b.en,"zh"));
     else if(sortMode==="date-asc")list.sort((a,b)=>(a.uploadDate||"").localeCompare(b.uploadDate||""));
     else list.sort((a,b)=>(b.uploadDate||"").localeCompare(a.uploadDate||""));
@@ -158,6 +161,14 @@ export default function Kanban(){
       {/* NAV ACTIONS */}
       <div style={{position:"fixed",top:0,right:0,height:"var(--nav-h)",display:"flex",
                    alignItems:"center",gap:5,paddingRight:12,zIndex:201}}>
+        {/* Period selector */}
+        <select className="di" value={period} onChange={e=>setPeriod(e.target.value)}
+                style={{background:"rgba(255,255,255,.15)",borderColor:"rgba(255,255,255,.3)",
+                        color:"#D6EAFB",fontSize:11,padding:"3px 6px"}}>
+          {["P01","P02","P03","P04","P05","P06","P07","P08","P09","P10","P11","P12"].map(m=>(
+            <option key={m} value={m} style={{background:"var(--b800)"}}>{m}</option>
+          ))}
+        </select>
         <label className="btn ghost" style={{cursor:"pointer"}}>
           📂 <span>多檔</span>
           <input type="file" multiple style={{display:"none"}} onChange={handleImport}/>
@@ -168,6 +179,9 @@ export default function Kanban(){
         </label>
         <button className="btn ghost" onClick={handleScan} disabled={loading}>
           {loading?<span className="spinner"/>:"🔄"}<span>掃描</span>
+        </button>
+        <button className="btn ghost" onClick={()=>setModal({type:"download"})}>
+          ⬇ <span>下載</span>
         </button>
 
         <div className="dropdown" ref={writeDD.ref}>
@@ -259,11 +273,12 @@ export default function Kanban(){
               <button key={m} className={`sort-btn ${sortMode===m?"on":""}`} onClick={()=>setSortMode(m)}>{l}</button>
             ))}
             <div className="vsep"/>
-            <span style={{fontSize:11,color:"#8AB2D8"}}>範圍：</span>
-            <input className="di" type="date" value={df} onChange={e=>setDf(e.target.value)}/>
-            <span style={{fontSize:11,color:"#8AB2D8"}}>—</span>
-            <input className="di" type="date" value={dt} onChange={e=>setDt(e.target.value)}/>
-            {(df||dt)&&<button className="sort-btn" onClick={()=>{setDf("");setDt("");}}>✕</button>}
+            <span style={{fontSize:11,color:"#8AB2D8"}}>月份篩選：</span>
+            <button className={`sort-btn ${!df?"on":""}`} onClick={()=>setDf("")}>全部</button>
+            {["P01","P02","P03","P04","P05","P06","P07","P08","P09","P10","P11","P12"].map(m=>(
+              <button key={m} className={`sort-btn ${df===m?"on":""}`}
+                      onClick={()=>setDf(df===m?"":m)} style={{padding:"2px 6px"}}>{m}</button>
+            ))}
           </div>
           <div className="table-wrap">
             <table>
@@ -323,7 +338,8 @@ export default function Kanban(){
       </div>
 
       {/* MODALS */}
-      {modal?.type==="write"&&selEmp&&<WriteModal emp={selEmp} form={getForm(selEmp.id)} onClose={()=>setModal(null)} show={show}/>}
+      {modal?.type==="write"&&<WriteModal forms={Object.fromEntries(kanban.map(e=>[e.en,forms[e.id]||mkForm()]))} onClose={()=>setModal(null)} show={show}/>}
+      {modal?.type==="download"&&<DownloadModal allEmps={kanban} onClose={()=>setModal(null)} show={show}/>}
       {modal?.type==="verify"&&selEmp&&<VerifyModal emp={selEmp} form={getForm(selEmp.id)} onClose={()=>setModal(null)} show={show}/>}
       {modal?.type==="pdf"&&(
         <div className="modal-overlay" onClick={()=>setModal(null)}>
