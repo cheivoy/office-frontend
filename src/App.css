@@ -189,7 +189,7 @@ tbody td.nc{text-align:left;padding-left:8px}
 .ftype.pdf{background:#FAECE7;color:#993C1D}
 .ftype.xlsx{background:#EAF3DE;color:#3B6D11}
 .ftype.eml{background:#E6F1FB;color:#185FA5}
-.fname{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px}
+.fname{flex:1;font-size:11px;word-break:break-all;line-height:1.4}
 
 /* ── PEOPLE PAGE ── */
 .people-page{flex:1;overflow:auto;padding:16px 20px}

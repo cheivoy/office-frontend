@@ -78,7 +78,7 @@ export default function ImportModal({ onClose, show, onScanDone }) {
   };
 
   return (
-    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+    <div className="modal-overlay">
       <div className="modal">
         <div className="modal-hd">
           <span className="modal-hd-t">📂 導入檔案</span>
@@ -153,7 +153,9 @@ export default function ImportModal({ onClose, show, onScanDone }) {
               {unmatched.map((u,i)=>(
                 <div key={i} style={{display:"flex",alignItems:"center",gap:8,
                                      padding:"6px 0",borderBottom:"1px solid var(--bd)"}}>
-                  <div style={{flex:1,fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                  <div style={{flex:1,fontSize:11,wordBreak:"break-all",lineHeight:1.4,
+                               color:"var(--b800)",padding:"2px 0"}}
+                       title={u.file}>
                     📄 {u.file}
                   </div>
                   <select className="di" style={{width:140,fontSize:11}}
