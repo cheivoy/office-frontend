@@ -4,6 +4,7 @@ import { scanInboxWithPeriod, importFiles, getEmployeeFiles, previewFileUrl, pre
 import { useToast, useApi, useDropdown } from "../hooks";
 import WriteModal from "./WriteModal";
 import DownloadModal from "./DownloadModal";
+import ImportModal from "./ImportModal";
 import VerifyModal from "./VerifyModal";
 
 const COLS=[
@@ -23,12 +24,61 @@ function calcH(ts,te){
   const[sh,sm]=ts.split(":").map(Number),[eh,em]=te.split(":").map(Number);
   let d=(eh*60+em)-(sh*60+sm);if(d<0)d+=1440;return(d/60).toFixed(1);
 }
+// Calculate hours from time range (returns number)
+function calcLeaveH(tstart,tend){
+  if(!tstart||!tend)return null;
+  const[sh,sm]=tstart.split(":").map(Number),[eh,em]=tend.split(":").map(Number);
+  let d=(eh*60+em)-(sh*60+sm);if(d<0)d+=1440;
+  return d/60;
+}
+
+// Get display hours string for a single leave entry
+function leaveHours(r){
+  const h=calcLeaveH(r.tstart,r.tend);
+  if(h!==null)return h%1===0?`${h}`:parseFloat(h.toFixed(1)).toString();
+  return r.hours||"";
+}
+
+// Expand date range to individual MMDD strings
+function expandDateRange(from_date,to_date){
+  if(!from_date)return[];
+  const fd=r=>r.slice(5).replace("-","");
+  if(!to_date||to_date===from_date)return[fd(from_date)];
+  const dates=[];
+  const cur=new Date(from_date);
+  const end=new Date(to_date);
+  while(cur<=end){
+    dates.push(cur.toISOString().slice(5,10).replace("-",""));
+    cur.setDate(cur.getDate()+1);
+  }
+  return dates;
+}
+
+// Build leave string per the rules:
+// - Same type entries are grouped
+// - If all days >= 8hrs → no time suffix: "0504, 0514_sick leave"
+// - If any day < 8hrs → write that day's hours: "0504, 0514_3hrs sick leave"
+//   (For multi-day with mixed: only non-full days get noted)
+// - Different types stay separate
 function fmtLeave(rows){
-  return rows.filter(r=>r.dates).map(r=>{
-    const ds=r.dates.trim().split(/\s+/).join(", ");
-    const hrs=r.hours?`_${r.hours} `:"_";
+  return rows.filter(r=>r.from_date).map(r=>{
+    const dates=expandDateRange(r.from_date,r.to_date);
+    const ds=dates.join(", ");
+    const h=calcLeaveH(r.tstart,r.tend);
     const lbl=r.type==="other"&&r.reason?r.reason:(r.type||"leave");
-    return`${ds}${hrs}${lbl}`;
+    let hrsPart="";
+    if(h!==null){
+      if(h>=8){
+        hrsPart="_";  // full day(s), no time suffix
+      } else {
+        // partial day - include hours
+        const hStr=h%1===0?`${h}hrs`:`${parseFloat(h.toFixed(1))}hrs`;
+        hrsPart=`_${hStr} `;
+      }
+    } else {
+      hrsPart="_";
+    }
+    return`${ds}${hrsPart}${lbl}`;
   }).join("  ");
 }
 function fmtOt(rows){
@@ -56,6 +106,8 @@ export default function Kanban(){
   const[modal,setModal]=useState(null);
   const[rpOpen,setRpOpen]=useState(false);
   const[period,setPeriod]=useState("P05");
+  const[year,setYear]=useState("2026");
+  const fullPeriod=`${year}-${period}`;
   const{show,Toast}=useToast();
   const{loading,run}=useApi();
   const writeDD=useDropdown();
@@ -64,7 +116,7 @@ export default function Kanban(){
   useEffect(()=>{handleScan();},[]);// eslint-disable-line
 
   const handleScan=()=>run(
-    ()=>scanInboxWithPeriod(`${new Date().getFullYear()}-${period}`),
+    ()=>scanInboxWithPeriod(fullPeriod),
     res=>{setKanban(res.kanban||[]);show("掃描完成","ok");},
     e=>show(`掃描失敗：${e}`,"err")
   );
@@ -161,7 +213,14 @@ export default function Kanban(){
       {/* NAV ACTIONS */}
       <div style={{position:"fixed",top:0,right:0,height:"var(--nav-h)",display:"flex",
                    alignItems:"center",gap:5,paddingRight:12,zIndex:201}}>
-        {/* Period selector */}
+        {/* Year + Period selector */}
+        <select className="di" value={year} onChange={e=>setYear(e.target.value)}
+                style={{background:"rgba(255,255,255,.15)",borderColor:"rgba(255,255,255,.3)",
+                        color:"#D6EAFB",fontSize:11,padding:"3px 6px",width:54}}>
+          {["2025","2026","2027"].map(y=>(
+            <option key={y} value={y} style={{background:"var(--b800)"}}>{y}</option>
+          ))}
+        </select>
         <select className="di" value={period} onChange={e=>setPeriod(e.target.value)}
                 style={{background:"rgba(255,255,255,.15)",borderColor:"rgba(255,255,255,.3)",
                         color:"#D6EAFB",fontSize:11,padding:"3px 6px"}}>
@@ -169,14 +228,9 @@ export default function Kanban(){
             <option key={m} value={m} style={{background:"var(--b800)"}}>{m}</option>
           ))}
         </select>
-        <label className="btn ghost" style={{cursor:"pointer"}}>
-          📂 <span>多檔</span>
-          <input type="file" multiple style={{display:"none"}} onChange={handleImport}/>
-        </label>
-        <label className="btn ghost" style={{cursor:"pointer"}}>
-          🗂 <span>資料夾</span>
-          <input type="file" style={{display:"none"}} webkitdirectory="" onChange={handleImport}/>
-        </label>
+        <button className="btn ghost" onClick={()=>setModal({type:"import"})}>
+          📂 <span>導入</span>
+        </button>
         <button className="btn ghost" onClick={handleScan} disabled={loading}>
           {loading?<span className="spinner"/>:"🔄"}<span>掃描</span>
         </button>
@@ -273,7 +327,7 @@ export default function Kanban(){
             <button className={`sort-btn ${!df?"on":""}`} onClick={()=>setDf("")}>全部</button>
             {["P01","P02","P03","P04","P05","P06","P07","P08","P09","P10","P11","P12"].map(m=>(
               <button key={m} className={`sort-btn ${df===m?"on":""}`}
-                      onClick={()=>setDf(df===m?"":m)} style={{padding:"2px 6px"}}>{m}</button>
+                      onClick={()=>setDf(df===fullPeriod?"":fullPeriod)} style={{padding:"2px 6px"}}>{m}</button>
             ))}
           </div>
           <div className="table-wrap">
@@ -334,6 +388,7 @@ export default function Kanban(){
       </div>
 
       {/* MODALS */}
+      {modal?.type==="import"&&<ImportModal onClose={()=>setModal(null)} show={show} onScanDone={res=>{setKanban(res.kanban||[]);setModal(null);}}/> }
       {modal?.type==="write"&&<WriteModal forms={Object.fromEntries(kanban.map(e=>[e.en,forms[e.id]||mkForm()]))} onClose={()=>setModal(null)} show={show}/>}
       {modal?.type==="download"&&<DownloadModal allEmps={kanban} onClose={()=>setModal(null)} show={show}/>}
       {modal?.type==="verify"&&selEmp&&<VerifyModal emp={selEmp} form={getForm(selEmp.id)} onClose={()=>setModal(null)} show={show}/>}
@@ -494,25 +549,64 @@ function FormTab({emp,form,activeG,onToggleSec,onAddRow,onRmRow,onUpdRow,onSetWD
         {form.ta.length>0&&<div className="subtotal">差旅小計 NT${Math.round(taTotal).toLocaleString()}</div>}
       </SecBlock>
       <SecBlock id="leave" title="請假" checked={checked.has("leave")} onToggle={()=>onToggleSec("leave")} onAdd={()=>onAddRow("leave",{type:"sick leave"})} badge={checked.has("leave")?(form.leave.length>0?`${form.leave.length}筆`:"待填"):null}>
-        {form.leave.map((r,i)=>(
+        {form.leave.map((r,i)=>{
+          const autoH=calcLeaveH(r.tstart,r.tend);
+          const autoHStr=autoH!==null?(autoH>=8?"全天":`${parseFloat(autoH.toFixed(1))}h`):"";
+          const fullDay=autoH!==null&&autoH>=8;
+          return(
           <div key={i} className="entry"><button className="rm-btn" onClick={()=>onRmRow("leave",i)}>×</button>
-            <div className="fl"><div className="fg" style={{flex:2}}><label>日期（空格分隔多日）</label>
-              <input type="text" value={r.dates||""} placeholder="0504 0514 0526" onChange={e=>onUpdRow("leave",i,"dates",e.target.value)}/>
-            </div></div>
+            <div className="fl">
+              <div className="fg"><label>開始日期</label>
+                <input type="date" value={r.from_date||""} onChange={e=>onUpdRow("leave",i,"from_date",e.target.value)}/>
+              </div>
+              <div className="fg"><label>結束日期</label>
+                <input type="date" value={r.to_date||""} onChange={e=>onUpdRow("leave",i,"to_date",e.target.value)}/>
+              </div>
+            </div>
+            <div className="fl">
+              <div className="fg"><label>開始時間</label>
+                <input type="time" value={r.tstart||""} onChange={e=>onUpdRow("leave",i,"tstart",e.target.value)}/>
+              </div>
+              <div className="fg"><label>結束時間</label>
+                <input type="time" value={r.tend||""} onChange={e=>onUpdRow("leave",i,"tend",e.target.value)}/>
+              </div>
+              <div className="fg"><label>時數</label>
+                <input readOnly value={autoHStr} placeholder="自動"
+                       style={{color:fullDay?"var(--ok-tx)":"var(--b800)",fontWeight:fullDay?500:400}}/>
+              </div>
+            </div>
             <div className="fl">
               <div className="fg"><label>假別</label>
                 <select value={r.type||"sick leave"} onChange={e=>onUpdRow("leave",i,"type",e.target.value)}>
                   {LEAVE_TYPES.map(t=><option key={t} value={t}>{t}</option>)}
                 </select>
               </div>
-              <div className="fg"><label>時數(選填)</label><input type="text" value={r.hours||""} placeholder="3hrs" onChange={e=>onUpdRow("leave",i,"hours",e.target.value)}/></div>
+              {autoH!==null&&<div style={{alignSelf:"flex-end",paddingBottom:3,fontSize:10,
+                                          color:fullDay?"var(--ok-tx)":"var(--warn-tx)",flexShrink:0}}>
+                {fullDay?"✓ 全天假":"⚠ 部分時數"}
+              </div>}
             </div>
             {r.type==="other"&&<div className="fl"><div className="fg" style={{flex:1}}><label>原因</label>
               <input type="text" value={r.reason||""} placeholder="請說明原因" onChange={e=>onUpdRow("leave",i,"reason",e.target.value)}/>
             </div></div>}
           </div>
-        ))}
-        {form.leave.length>0&&<div className="outfmt" style={{whiteSpace:"normal",wordBreak:"break-all"}}>{fmtLeave(form.leave)}</div>}
+          );
+        })}
+        {form.leave.length>0&&(()=>{
+          const totalH=form.leave.reduce((a,r)=>{
+            const h=calcLeaveH(r.tstart,r.tend);
+            return a+(h!==null?h:0);
+          },0);
+          const preview=fmtLeave(form.leave);
+          return(<>
+            <div className="subtotal">
+              合計：{totalH>=8?`${Math.floor(totalH/8)}天${totalH%8>0?` ${totalH%8}h`:""}`:`${parseFloat(totalH.toFixed(1))}h`}
+            </div>
+            {preview&&<div className="outfmt" style={{whiteSpace:"normal",wordBreak:"break-all",marginTop:2}}>
+              {preview}
+            </div>}
+          </>);
+        })()}
       </SecBlock>
     </>
   );
