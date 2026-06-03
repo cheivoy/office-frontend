@@ -732,8 +732,6 @@ function ClearModal({onClose, show, onDone}){
   const [step, setStep] = useState("confirm"); // confirm | clearing | done
   const [choice, setChoice] = useState("all");
   const {loading, run} = useApi();
-  const BASE = process.env.REACT_APP_API_URL || "";
-
   const doDelete = () => {
     setStep("clearing");
     const fn = choice==="all" ? clearAll
