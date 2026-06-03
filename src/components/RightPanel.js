@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { getEmployeeFiles, previewFileUrl, previewEml, downloadZip, downloadAllZip,
          submitData, downloadBlob, attachmentUrl } from "../api";
 import { useApi, useToast } from "../hooks";
@@ -322,5 +322,3 @@ function SecBlock({ title, warn, onAdd, onWrite, loading, onUpload, uploadedFile
   );
 }
 
-// Need React import for SecBlock
-import React from "react";
