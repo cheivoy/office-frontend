@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { scanInboxWithPeriod, importFiles, getEmployeeFiles, previewFileUrl, previewEml,
+import { scanInboxWithPeriod, getEmployeeFiles, previewFileUrl, previewEml,
          downloadZip, downloadAllZip, downloadBlob, attachmentUrl } from "../api";
 import { useToast, useApi, useDropdown } from "../hooks";
 import WriteModal from "./WriteModal";
@@ -30,13 +30,6 @@ function calcLeaveH(tstart,tend){
   const[sh,sm]=tstart.split(":").map(Number),[eh,em]=tend.split(":").map(Number);
   let d=(eh*60+em)-(sh*60+sm);if(d<0)d+=1440;
   return d/60;
-}
-
-// Get display hours string for a single leave entry
-function leaveHours(r){
-  const h=calcLeaveH(r.tstart,r.tend);
-  if(h!==null)return h%1===0?`${h}`:parseFloat(h.toFixed(1)).toString();
-  return r.hours||"";
 }
 
 // Expand date range to individual MMDD strings
@@ -121,10 +114,6 @@ export default function Kanban(){
     e=>show(`掃描失敗：${e}`,"err")
   );
 
-  const handleImport=(e)=>{
-    const fs=[...e.target.files];if(!fs.length)return;
-    run(()=>importFiles(fs),res=>show(`已導入 ${res.count} 個檔案`,"ok"),e=>show(`導入失敗：${e}`,"err"));
-  };
 
   const getFlat=useCallback(()=>{
     const r=[];COLS.forEach(g=>{if(activeG.has(g.id))r.push(...g.subs)});return r;
