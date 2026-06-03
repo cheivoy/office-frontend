@@ -162,3 +162,25 @@ export const scanInboxWithPeriod = (period) => {
   fd.append("period", period);
   return req("POST", "/api/scan-and-classify", fd, true);
 };
+// ── Clear data ───────────────────────────────────────────────────
+export const clearAll          = () => req("DELETE", "/api/clear-all");
+export const clearInbox        = () => req("DELETE", "/api/clear-inbox");
+export const clearDepartments  = () => req("DELETE", "/api/clear-departments");
+export const deleteFile = (empEn, filePath) =>
+  req("DELETE", `/api/delete-file/${encodeURIComponent(empEn)}/${encodeURIComponent(filePath)}`);
+export const moveFile = (empEn, filePath, targetEmp, targetPeriod="", copy=false) => {
+  const fd = new FormData();
+  fd.append("emp_en", empEn);
+  fd.append("file_path", filePath);
+  fd.append("target_emp", targetEmp);
+  fd.append("target_period", targetPeriod);
+  fd.append("copy", copy);
+  return req("POST", "/api/move-file", fd, true);
+};
+export const uploadToEmployee = (empEn, period, files) => {
+  const fd = new FormData();
+  fd.append("emp_en", empEn);
+  fd.append("period", period);
+  files.forEach(f => fd.append("files", f));
+  return req("POST", "/api/upload-to-employee", fd, true);
+};

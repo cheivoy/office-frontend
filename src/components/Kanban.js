@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { scanInboxWithPeriod, getEmployeeFiles, previewFileUrl, previewEml,
-         downloadZip, downloadAllZip, downloadBlob, attachmentUrl } from "../api";
+         downloadZip, downloadAllZip, downloadBlob, attachmentUrl,
+         clearAll, clearInbox, clearDepartments, deleteFile,
+         moveFile, uploadToEmployee } from "../api";
 import { useToast, useApi, useDropdown } from "../hooks";
 import WriteModal from "./WriteModal";
 import DownloadModal from "./DownloadModal";
@@ -226,6 +228,10 @@ export default function Kanban(){
         <button className="btn ghost" onClick={()=>setModal({type:"download"})}>
           ⬇ <span>下載</span>
         </button>
+        <button className="btn ghost" style={{borderColor:"rgba(255,100,100,.4)",color:"#FFB3B3"}}
+                onClick={()=>setModal({type:"clear"})}>
+          🗑 <span>清空</span>
+        </button>
 
         <div className="dropdown" ref={writeDD.ref}>
           <button className="btn ghost" onClick={()=>writeDD.setOpen(o=>!o)}>
@@ -347,9 +353,13 @@ export default function Kanban(){
             {!selEmp
               ?<div className="empty-state">👆<br/>點選員工<br/>查看資料</div>
               :curRT==="files"
-                ?<FilesTab emp={selEmp} files={files} onOpen={openFile}
+                ?<FilesTab emp={selEmp} files={files} setFiles={setFiles} onOpen={openFile}
+                    allEmps={kanban} period={fullPeriod} show={show}
                     onDlZip={()=>run(()=>downloadZip(selEmp.en),b=>downloadBlob(b,`${selEmp.en}.zip`),e=>show(e,"err"))}
-                    onDlAll={()=>run(()=>downloadAllZip(),b=>downloadBlob(b,"all.zip"),e=>show(e,"err"))}/>
+                    onDlAll={()=>run(()=>downloadAllZip(),b=>downloadBlob(b,"all.zip"),e=>show(e,"err"))}
+                    onDelete={f=>run(()=>deleteFile(selEmp.en,f.path||f.name),
+                      ()=>{setFiles(prev=>prev.filter(x=>x.path!==f.path));show("已刪除","ok");},
+                      e=>show(`刪除失敗：${e}`,"err"))}/>
                 :<FormTab emp={selEmp} form={getForm(selEmp.id)} activeG={activeG}
                     onToggleSec={id=>toggleSec(selEmp.id,id)}
                     onAddRow={(k,d)=>addRow(selEmp.id,k,d)}
@@ -377,6 +387,7 @@ export default function Kanban(){
       </div>
 
       {/* MODALS */}
+      {modal?.type==="clear"&&<ClearModal onClose={()=>setModal(null)} show={show} onDone={()=>{setKanban([]);setModal(null);}}/> }
       {modal?.type==="import"&&<ImportModal onClose={()=>setModal(null)} show={show} onScanDone={res=>{setKanban(res.kanban||[]);setModal(null);}}/> }
       {modal?.type==="write"&&<WriteModal forms={Object.fromEntries(kanban.map(e=>[e.en,forms[e.id]||mkForm()]))} onClose={()=>setModal(null)} show={show}/>}
       {modal?.type==="download"&&<DownloadModal allEmps={kanban} onClose={()=>setModal(null)} show={show}/>}
@@ -452,17 +463,119 @@ function empRow(e,flat,selId,getStatus,cycleStatus,onSelect){
   );
 }
 
-function FilesTab({emp,files,onOpen,onDlZip,onDlAll}){
+function FilesTab({emp,files,setFiles,onOpen,onDlZip,onDlAll,onDelete,allEmps,period,show}){
+  const [confirmDel, setConfirmDel] = useState(null);
+  const [moveFile_,  setMoveFile_]  = useState(null);  // file being moved
+  const [moveTarget, setMoveTarget] = useState("");
+  const [moveCopy,   setMoveCopy]   = useState(false);
+  const [moveSearch, setMoveSearch] = useState("");
+  const [uploading,  setUploading]  = useState(false);
+  const {run} = useApi();
+
+  const doMove = () => {
+    if (!moveTarget) return;
+    run(
+      () => moveFile(emp.en, moveFile_.path||moveFile_.name, moveTarget, period, moveCopy),
+      () => {
+        if (!moveCopy) setFiles(prev=>prev.filter(f=>f.path!==moveFile_.path));
+        show(`${moveCopy?"複製":"移動"}成功`, "ok");
+        setMoveFile_(null);
+      },
+      e => show(`操作失敗：${e}`, "err")
+    );
+  };
+
+  const doUpload = (e) => {
+    const fs = [...e.target.files]; if (!fs.length) return;
+    setUploading(true);
+    run(
+      () => uploadToEmployee(emp.en, period, fs),
+      res => {
+        setFiles(prev => [...prev, ...res.saved]);
+        show(`已上傳 ${res.count} 個檔案`, "ok");
+        setUploading(false);
+      },
+      err => { show(`上傳失敗：${err}`, "err"); setUploading(false); }
+    );
+  };
+
+  const empSearch = moveSearch.toLowerCase();
+  const filteredEmps = allEmps.filter(e =>
+    e.id !== emp.id &&
+    (!empSearch || (e.cn+e.en).toLowerCase().includes(empSearch) ||
+     (e.unit||"").toLowerCase().includes(empSearch))
+  );
+
+  if (moveFile_) return (
+    <>
+      <div className="rhd" style={{cursor:"pointer"}} onClick={()=>setMoveFile_(null)}>
+        ← 返回
+      </div>
+      <div style={{fontSize:12,marginBottom:8,color:"var(--b800)"}}>
+        {moveCopy?"複製":"移動"}檔案：<br/>
+        <span style={{fontSize:11,color:"#888",wordBreak:"break-all"}}>{moveFile_.name}</span>
+      </div>
+      <div style={{display:"flex",gap:6,marginBottom:8}}>
+        <button className={`btn sm ${!moveCopy?"blue":""}`} onClick={()=>setMoveCopy(false)}>移動</button>
+        <button className={`btn sm ${moveCopy?"blue":""}`}  onClick={()=>setMoveCopy(true)}>複製</button>
+      </div>
+      <div style={{fontSize:11,color:"#8AB2D8",marginBottom:4}}>選擇目標員工：</div>
+      <input type="text" placeholder="🔍 搜尋姓名/單位…" value={moveSearch}
+             onChange={e=>setMoveSearch(e.target.value)}
+             style={{width:"100%",fontSize:11,padding:"4px 7px",border:"1px solid var(--bd2)",
+                     borderRadius:"5px 5px 0 0",outline:"none"}}/>
+      <select className="di" style={{width:"100%",fontSize:11,borderRadius:"0 0 5px 5px",
+                                      borderTop:"none",height:100,marginBottom:8}}
+              size={5} value={moveTarget} onChange={e=>setMoveTarget(e.target.value)}>
+        <option value="">— 選擇員工 —</option>
+        {filteredEmps.map(e=>(
+          <option key={e.id} value={e.en}>
+            {e.cn?`${e.cn} ${e.en}`:e.en} [{e.unit||e.proj}]
+          </option>
+        ))}
+      </select>
+      <div style={{display:"flex",gap:6}}>
+        <button className="btn sm" style={{flex:1}} onClick={()=>setMoveFile_(null)}>取消</button>
+        <button className="btn sm blue" style={{flex:1}} onClick={doMove} disabled={!moveTarget}>
+          確認{moveCopy?"複製":"移動"}
+        </button>
+      </div>
+    </>
+  );
+
   return(
     <>
       <div className="rhd">{emp.cn||emp.en}
         {emp.cn&&emp.en&&<span style={{fontSize:11,fontWeight:400,color:"#888",marginLeft:5}}>{emp.en}</span>}
+        <label className="btn sm" style={{marginLeft:"auto",cursor:"pointer",fontSize:10,padding:"2px 7px"}}>
+          {uploading?<span className="spinner"/>:"⬆"} 上傳
+          <input type="file" multiple style={{display:"none"}} onChange={doUpload}/>
+        </label>
       </div>
       {files.length===0?<div style={{fontSize:12,color:"#888",padding:"8px 0"}}>暫無歸檔檔案</div>
         :files.map(f=>(
-          <div key={f.name} className="file-row" onClick={()=>onOpen(f)}>
-            <span className={`ftype ${f.type}`}>{f.type.toUpperCase()}</span>
-            <span className="fname">{f.name}</span><span>👁</span>
+          <div key={f.path||f.name} style={{padding:"4px 5px",borderRadius:6,
+               background:confirmDel===f.path?"var(--miss-bg)":"transparent"}}>
+            {confirmDel===f.path ? (
+              <div style={{display:"flex",alignItems:"center",gap:4}}>
+                <span style={{flex:1,fontSize:11,color:"var(--miss-tx)"}}>確定刪除？</span>
+                <button className="btn sm" style={{fontSize:10,padding:"2px 6px"}}
+                        onClick={()=>setConfirmDel(null)}>取消</button>
+                <button className="btn sm danger" style={{fontSize:10,padding:"2px 6px"}}
+                        onClick={()=>{onDelete(f);setConfirmDel(null);}}>刪除</button>
+              </div>
+            ) : (
+              <div style={{display:"flex",alignItems:"flex-start",gap:4}}>
+                <span className={`ftype ${f.type}`} style={{flexShrink:0,marginTop:2}}>
+                  {f.type.toUpperCase()}
+                </span>
+                <span style={{flex:1,fontSize:11,cursor:"pointer",wordBreak:"break-all",lineHeight:1.4}}
+                      onClick={()=>onOpen(f)}>{f.name}</span>
+                <span style={{cursor:"pointer",fontSize:12,color:"#8AB2D8",flexShrink:0}} onClick={()=>onOpen(f)} title="預覽">👁</span>
+                <span style={{cursor:"pointer",fontSize:12,color:"#B0B0B0",flexShrink:0}} onClick={()=>setMoveFile_(f)} title="移動/複製">📋</span>
+                <span style={{cursor:"pointer",fontSize:12,color:"#C0BEB8",flexShrink:0}} onClick={()=>setConfirmDel(f.path||f.name)} title="刪除">🗑</span>
+              </div>
+            )}
           </div>
         ))}
       <div style={{display:"flex",gap:5,marginTop:8}}>
@@ -611,6 +724,88 @@ function SecBlock({id,title,checked,onToggle,onAdd,badge,children}){
         {checked&&<button className="sec-add" onClick={e=>{e.stopPropagation();onAdd();}}>＋</button>}
       </div>
       {checked&&<div className="sec-body">{children}</div>}
+    </div>
+  );
+}
+
+function ClearModal({onClose, show, onDone}){
+  const [step, setStep] = useState("confirm"); // confirm | clearing | done
+  const [choice, setChoice] = useState("all");
+  const {loading, run} = useApi();
+  const BASE = process.env.REACT_APP_API_URL || "";
+
+  const doDelete = () => {
+    setStep("clearing");
+    const fn = choice==="all" ? clearAll
+             : choice==="inbox" ? clearInbox
+             : clearDepartments;
+    run(fn,
+      res => {
+        const total = (res.deleted||0) + (res.inbox_deleted||0) + (res.dept_deleted||0);
+        show(`已刪除 ${total} 個檔案`, "ok");
+        setStep("done");
+        onDone && onDone();
+      },
+      e => { show(`刪除失敗：${e}`, "err"); onClose(); }
+    );
+  };
+
+  return(
+    <div className="modal-overlay">
+      <div className="modal">
+        <div className="modal-hd">
+          <span className="modal-hd-t">🗑 清空檔案</span>
+          <button className="btn sm" onClick={onClose}>✕</button>
+        </div>
+        <div className="modal-body">
+          {step==="confirm" && <>
+            <div style={{background:"var(--miss-bg)",border:"1px solid #F5C1C1",borderRadius:8,
+                         padding:"10px 12px",marginBottom:12,fontSize:12,color:"var(--miss-tx)"}}>
+              ⚠️ <strong>警告：此操作無法復原。</strong><br/>
+              刪除後所有已歸檔的檔案將永久消失。
+            </div>
+            <div style={{fontSize:12,marginBottom:10,fontWeight:500}}>選擇清空範圍：</div>
+            {[
+              {id:"inbox",     label:"只清空 Inbox",           desc:"尚未掃描歸檔的檔案"},
+              {id:"departments",label:"只清空 Departments",    desc:"已歸檔分類的檔案"},
+              {id:"all",       label:"全部清空（Inbox + Departments）", desc:"清除所有檔案"},
+            ].map(o=>(
+              <label key={o.id} className="radio-row" style={{marginBottom:6}}>
+                <input type="radio" name="clr" value={o.id} checked={choice===o.id}
+                       onChange={()=>setChoice(o.id)}/>
+                <span>
+                  <div style={{fontWeight:500,fontSize:12}}>{o.label}</div>
+                  <div style={{fontSize:11,color:"#888"}}>{o.desc}</div>
+                </span>
+              </label>
+            ))}
+          </>}
+          {step==="clearing" && (
+            <div style={{textAlign:"center",padding:"24px 0"}}>
+              <div style={{display:"inline-block",width:36,height:36,border:"3px solid var(--b100)",
+                           borderTopColor:"var(--b600)",borderRadius:"50%",
+                           animation:"spin .7s linear infinite",marginBottom:12}}/>
+              <div style={{fontSize:13,color:"var(--b800)"}}>刪除中…</div>
+            </div>
+          )}
+          {step==="done" && (
+            <div style={{textAlign:"center",padding:"24px 0"}}>
+              <div style={{fontSize:36,marginBottom:8}}>✅</div>
+              <div style={{fontSize:13,fontWeight:500,color:"var(--b800)"}}>清空完成</div>
+            </div>
+          )}
+        </div>
+        <div className="modal-footer">
+          {step==="confirm" && <>
+            <button className="btn" onClick={onClose}>取消</button>
+            <button className="btn" style={{background:"var(--miss-tx)",color:"#fff",borderColor:"var(--miss-tx)"}}
+                    onClick={doDelete} disabled={loading}>
+              {loading?<span className="spinner"/>:"🗑"} 確認刪除
+            </button>
+          </>}
+          {step==="done" && <button className="btn blue" onClick={onClose}>關閉</button>}
+        </div>
+      </div>
     </div>
   );
 }
