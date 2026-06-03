@@ -750,7 +750,7 @@ function SecBlock({ id, title, checked, onToggle, onAdd, badge, children }) {
 function ClearModal({ onClose, show, onDone }) {
   const [step, setStep] = useState("confirm"); // confirm | clearing | done
   const [choice, setChoice] = useState("all");
-  const { run } = useApi();
+  const {loading, run} = useApi();
   const doDelete = () => {
     setStep("clearing");
     const fn = choice === "all" ? clearAll
