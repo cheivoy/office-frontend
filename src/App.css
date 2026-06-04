@@ -92,7 +92,7 @@ body {
 
 /* ── ACTION BAR ── */
 .action-bar {
-  height: var(--ab-h);
+  min-height: var(--ab-h);
   background: var(--b50);
   border-bottom: 1px solid var(--bd);
   padding: 0 14px;
@@ -100,9 +100,8 @@ body {
   align-items: center;
   gap: 6px;
   flex-shrink: 0;
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  overflow-y: visible;
+  flex-wrap: wrap;
+  overflow: visible;
   z-index: 30;
 }
 
