@@ -271,7 +271,7 @@ function mergeByTimestamp(local, remote) {
 // ── Main component ────────────────────────────────────────────────────────────
 export default function Kanban() {
   const [kanban, setKanban] = useState([]);
-  const [activeG, setActiveG] = useState(new Set(["tr"]));
+  const [activeG, setActiveG] = useState(new Set(["tr", "ess", "ot", "ns", "travel", "leave"]));
   const [tst, setTst] = useState({});  // tree open state
   const [filt, setFilt] = useState({ proj: null, unit: null, pm: null });
   const [q, setQ] = useState("");
