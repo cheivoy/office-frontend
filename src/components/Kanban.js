@@ -1123,14 +1123,24 @@ function buildGrouped(list, flat, selId, getStatus, cycleStatus, onSelect, progr
     if (!grps[k]) grps[k] = { proj: e.proj, unit: e.unit || "—", pm: e.pm || "", emps: [] };
     grps[k].emps.push(e);
   });
-  let lp = "", lu = "";
+  // Sort so that same proj/unit/pm stay contiguous — otherwise headers and
+  // progress bars get re-emitted every time a unit reappears.
+  const ordered = Object.values(grps).sort((a, b) =>
+    (a.proj || "").localeCompare(b.proj || "") ||
+    (a.unit || "").localeCompare(b.unit || "") ||
+    (a.pm || "").localeCompare(b.pm || "")
+  );
+  const seenProj = new Set();
+  const seenUnit = new Set();
   const rows = [];
-  Object.values(grps).forEach(g => {
-    if (g.proj !== lp) {
+  ordered.forEach(g => {
+    if (!seenProj.has(g.proj)) {
       rows.push(<tr key={`gp-${g.proj}`} className="gp"><td colSpan={flat.length + 2}>📁 {g.proj}</td></tr>);
-      lp = g.proj; lu = "";
+      seenProj.add(g.proj);
     }
-    if (g.unit !== lu) {
+    const unitId = `${g.proj}||${g.unit}`;
+    if (!seenUnit.has(unitId)) {
+      seenUnit.add(unitId);
       // Unit row
       rows.push(<tr key={`gu-${g.proj}-${g.unit}`} className="gu"><td colSpan={flat.length + 2}>└ {g.unit}</td></tr>);
       // Progress bar row
@@ -1145,7 +1155,6 @@ function buildGrouped(list, flat, selId, getStatus, cycleStatus, onSelect, progr
           </tr>
         );
       }
-      lu = g.unit;
     }
     if (g.pm) rows.push(<tr key={`gpm-${g.pm}-${g.proj}`} className="gpm"><td colSpan={flat.length + 2}>· PM: {g.pm}</td></tr>);
     g.emps.forEach(e => rows.push(empRow(e, flat, selId, getStatus, cycleStatus, onSelect)));
