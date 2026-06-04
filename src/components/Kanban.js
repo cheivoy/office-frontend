@@ -284,6 +284,7 @@ export default function Kanban() {
   const [files, setFiles] = useState([]);
   const [modal, setModal] = useState(null);
   const [rpOpen, setRpOpen] = useState(false);
+  const [mobilePage, setMobilePage] = useState("kanban"); // "kanban" | "more"
   const [period, setPeriod] = useState("P05");
   const [year, setYear] = useState("2026");
   const [progress, setProgress] = useState({});
@@ -578,128 +579,150 @@ export default function Kanban() {
     unitGroups[key].emps.push(e);
   });
 
+  const isDirty = dirtyForms.size > 0 || dirtyProgress;
+  const filtTitle = filt.pm ? `${filt.pm} (${filt.unit})` : filt.unit ? `${filt.proj}/${filt.unit}` : filt.proj || "全部員工";
+
+  const isDirty = dirtyForms.size > 0 || dirtyProgress;
+  const filtTitle = filt.pm ? `${filt.pm} (${filt.unit})` : filt.unit ? `${filt.proj}/${filt.unit}` : filt.proj || "全部員工";
+
   return (
-    <div>
-      {/* NAV ACTIONS */}
-      <div style={{ position: "fixed", top: 0, right: 0, height: "var(--nav-h)", display: "flex", alignItems: "center", gap: 5, paddingRight: 12, zIndex: 201 }}>
-        <select className="di" value={year} onChange={e => setYear(e.target.value)}
-          style={{ background: "rgba(255,255,255,.15)", borderColor: "rgba(255,255,255,.3)", color: "#D6EAFB", fontSize: 11, padding: "3px 6px", width: 54 }}>
-          {["2024","2025", "2026", "2027"].map(y => <option key={y} value={y} style={{ background: "var(--b800)" }}>{y}</option>)}
-        </select>
-        <select className="di" value={period} onChange={e => setPeriod(e.target.value)}
-          style={{ background: "rgba(255,255,255,.15)", borderColor: "rgba(255,255,255,.3)", color: "#D6EAFB", fontSize: 11, padding: "3px 6px" }}>
-          {["P01","P02","P03","P04","P05","P06","P07","P08","P09","P10","P11","P12"].map(m => (
-            <option key={m} value={m} style={{ background: "var(--b800)" }}>{m}</option>
-          ))}
-        </select>
-        <button className="btn ghost" onClick={() => setModal({ type: "import" })}>📂 <span>導入</span></button>
-        <button className="btn ghost" onClick={handleScan} disabled={loading}>{loading ? <span className="spinner" /> : "🔄"}<span>掃描</span></button>
-        <button className="btn ghost" onClick={() => setModal({ type: "download" })}>⬇ <span>下載</span></button>
-        <button className="btn ghost" onClick={syncAll} disabled={syncLoading}
-          style={{ borderColor: (dirtyForms.size > 0 || dirtyProgress) ? "rgba(100,200,100,.5)" : "rgba(255,255,255,.25)", color: (dirtyForms.size > 0 || dirtyProgress) ? "#A0ECA0" : "#D6EAFB", position: "relative" }}>
-          {syncLoading ? <span className="spinner" /> : "☁"}
-          <span>同步全部</span>
-          {(dirtyForms.size > 0 || dirtyProgress) && <span style={{ position: "absolute", top: 3, right: 3, width: 6, height: 6, borderRadius: "50%", background: "#6EE06E" }} />}
-        </button>
-        <button className="btn ghost" style={{ borderColor: "rgba(255,100,100,.4)", color: "#FFB3B3" }} onClick={() => setModal({ type: "clear" })}>🗑 <span>清空</span></button>
-        <div className="dropdown" ref={writeDD.ref}>
-          <button className="btn ghost" onClick={() => writeDD.setOpen(o => !o)}>📝 <span>寫入</span> ▾</button>
-          <div className={`dropdown-menu ${writeDD.open ? "open" : ""}`}>
-            <div className="dropdown-label">選擇寫入目標</div>
-            <button className="dropdown-item" onClick={() => { writeDD.setOpen(false); setModal({ type: "write" }); }}>📊 Nokia 工作天數表</button>
-            <button className="dropdown-item" onClick={() => { writeDD.setOpen(false); setModal({ type: "write" }); }}>📋 Project F CNS&MN</button>
-            <button className="dropdown-item" onClick={() => { writeDD.setOpen(false); setModal({ type: "write" }); }}>📈 SNDA Dashboard</button>
-            <button className="dropdown-item" onClick={() => { writeDD.setOpen(false); setModal({ type: "write" }); }}>💰 Nokia 費用統整</button>
+    <div className="app-root">
+
+      {/* ACTION BAR */}
+      <div className="action-bar">
+        <span className="ab-group-label">檔案</span>
+        <div className="ab-group">
+          <button className="ab-btn" onClick={() => setModal({ type: "import" })}>📂 導入</button>
+          <button className="ab-btn" onClick={handleScan} disabled={loading}>
+            {loading ? <span className="spinner" /> : "🔄"} 掃描
+          </button>
+          <button className="ab-btn" onClick={() => setModal({ type: "download" })}>⬇ 下載</button>
+        </div>
+        <div className="ab-sep" />
+        <span className="ab-group-label">Excel</span>
+        <div className="ab-group">
+          <div className="dropdown" ref={writeDD.ref}>
+            <button className="ab-btn" onClick={() => writeDD.setOpen(o => !o)}>📝 寫入 ▾</button>
+            <div className={`dropdown-menu ${writeDD.open ? "open" : ""}`}>
+              <div className="dropdown-label">選擇寫入目標</div>
+              <button className="dropdown-item" onClick={() => { writeDD.setOpen(false); setModal({ type: "write" }); }}>📊 Nokia 工作天數表</button>
+              <button className="dropdown-item" onClick={() => { writeDD.setOpen(false); setModal({ type: "write" }); }}>📋 Project F CNS&amp;MN</button>
+              <button className="dropdown-item" onClick={() => { writeDD.setOpen(false); setModal({ type: "write" }); }}>📈 SNDA Dashboard</button>
+              <button className="dropdown-item" onClick={() => { writeDD.setOpen(false); setModal({ type: "write" }); }}>💰 Nokia 費用統整</button>
+            </div>
+          </div>
+          <div className="dropdown" ref={verifyDD.ref}>
+            <button className="ab-btn" onClick={() => verifyDD.setOpen(o => !o)}>🔍 核對 ▾</button>
+            <div className={`dropdown-menu ${verifyDD.open ? "open" : ""}`}>
+              <div className="dropdown-label">選擇核對項目</div>
+              <button className="dropdown-item" onClick={() => { verifyDD.setOpen(false); setModal({ type: "verify-multi", item: "travel" }); }}>✈️ Travel</button>
+              <button className="dropdown-item" onClick={() => { verifyDD.setOpen(false); setModal({ type: "verify-multi", item: "ot" }); }}>⏰ OT</button>
+              <button className="dropdown-item" onClick={() => { verifyDD.setOpen(false); setModal({ type: "verify-multi", item: "ns" }); }}>🌙 NS</button>
+              <button className="dropdown-item" onClick={() => { verifyDD.setOpen(false); setModal({ type: "verify-multi", item: "ess" }); }}>📅 ESS</button>
+              <div className="dropdown-sep" />
+              <button className="dropdown-item" onClick={() => { verifyDD.setOpen(false); setModal({ type: "verify-multi", item: "all" }); }}>🔍 全部核對</button>
+            </div>
           </div>
         </div>
-        <div className="dropdown" ref={verifyDD.ref}>
-          <button className="btn ghost" onClick={() => verifyDD.setOpen(o => !o)}>🔍 <span>核對</span> ▾</button>
-          <div className={`dropdown-menu ${verifyDD.open ? "open" : ""}`}>
-            <div className="dropdown-label">選擇核對項目</div>
-            <button className="dropdown-item" onClick={() => { verifyDD.setOpen(false); setModal({ type: "verify-multi", item: "travel" }); }}>✈️ Travel</button>
-            <button className="dropdown-item" onClick={() => { verifyDD.setOpen(false); setModal({ type: "verify-multi", item: "ot" }); }}>⏰ OT</button>
-            <button className="dropdown-item" onClick={() => { verifyDD.setOpen(false); setModal({ type: "verify-multi", item: "ns" }); }}>🌙 NS</button>
-            <button className="dropdown-item" onClick={() => { verifyDD.setOpen(false); setModal({ type: "verify-multi", item: "ess" }); }}>📅 ESS</button>
-            <div className="dropdown-sep" />
-            <button className="dropdown-item" onClick={() => { verifyDD.setOpen(false); setModal({ type: "verify-multi", item: "all" }); }}>🔍 全部核對</button>
-          </div>
+        <div className="ab-sep" />
+        <button className={`ab-btn ab-sync${isDirty ? " dirty" : ""}`} onClick={syncAll} disabled={syncLoading}>
+          {syncLoading ? <span className="spinner" /> : "☁"} 同步全部
+          {isDirty && <span className="dirty-dot" />}
+        </button>
+        <button className="ab-btn ab-danger" style={{ marginLeft: "auto" }} onClick={() => setModal({ type: "clear" })}>🗑 清空</button>
+      </div>
+
+      {/* PERIOD + STATS ROW */}
+      <div className="period-row">
+        <span className="period-label">月份</span>
+        <select className="year-sel" value={year} onChange={e => setYear(e.target.value)}>
+          {["2024","2025","2026","2027"].map(y => <option key={y}>{y}</option>)}
+        </select>
+        <div className="period-months">
+          <button className={`pm-btn${!df ? " on" : ""}`} onClick={() => setDf("")}>全部</button>
+          {["P01","P02","P03","P04","P05","P06","P07","P08","P09","P10","P11","P12"].map(m => (
+            <button key={m} className={`pm-btn${df === `${year}-${m}` ? " on" : ""}`}
+              onClick={() => setDf(df === `${year}-${m}` ? "" : `${year}-${m}`)}>
+              {m}
+            </button>
+          ))}
+        </div>
+        <div className="period-stats">
+          <span className="pill">{okCount} 已繳</span>
+          <span className="pill r">{missCount} 缺件</span>
         </div>
       </div>
 
+      {/* 3-COLUMN BODY */}
       <div className="kanban-layout">
-        {/* SIDEBAR */}
-        <div className="sidebar">
-          <div className="search-wrap">
-            <span className="si">🔍</span>
-            <input value={q} onChange={e => setQ(e.target.value)} placeholder="搜尋姓名…" />
-          </div>
-          <div className="tree">
-            {/* All option */}
-            <div className={`tree-proj ${!filt.proj ? "sel" : ""}`}
-              onClick={() => { setFilt({ proj: null, unit: null, pm: null }); setTst({}); }}>
-              📋 全部
-            </div>
-            {Object.keys(tree).map(proj => (
-              <React.Fragment key={proj}>
-                <div className={`tree-proj ${filt.proj === proj && !filt.unit ? "sel" : ""}`} onClick={() => clickP(proj)}>
-                  <span className={`chv ${tst[proj] ? "open" : ""}`}>▶</span>📁 {proj}
+
+        {/* SIDEBAR — collapsible */}
+        <div className={`sidebar${tst.__collapsed ? " collapsed" : ""}`}>
+          <button className="sb-toggle" onClick={() => setTst(p => ({ ...p, __collapsed: !p.__collapsed }))}>
+            {tst.__collapsed ? "▶" : <><span className="sb-toggle-label">篩選</span><span>◀</span></>}
+          </button>
+          {!tst.__collapsed && (
+            <>
+              <div className="search-wrap">
+                <span className="si">🔍</span>
+                <input value={q} onChange={e => setQ(e.target.value)} placeholder="搜尋姓名…" />
+              </div>
+              <div className="tree">
+                <div className={`tree-proj${!filt.proj ? " sel" : ""}`}
+                  onClick={() => { setFilt({ proj: null, unit: null, pm: null }); setTst(p => ({ __collapsed: p.__collapsed })); }}>
+                  📋 全部
                 </div>
-                {tst[proj] && Object.keys(tree[proj]).map(u => (
-                  <React.Fragment key={u}>
-                    <div className={`tree-unit ${filt.proj === proj && filt.unit === u && !filt.pm ? "sel" : ""}`}
-                      onClick={e => clickU(proj, u, e)}>
-                      {[...tree[proj][u]].length > 0 && <span className={`chv ${tst[`${proj}:${u}`] ? "open" : ""}`}>▶</span>}
-                      🏢 {u}
+                {Object.keys(tree).map(proj => (
+                  <React.Fragment key={proj}>
+                    <div className={`tree-proj${filt.proj === proj && !filt.unit ? " sel" : ""}`} onClick={() => clickP(proj)}>
+                      <span className={`chv${tst[proj] ? " open" : ""}`}>▶</span>📁 {proj}
                     </div>
-                    {tst[`${proj}:${u}`] && [...tree[proj][u]].map(pm => (
-                      <div key={pm} className={`tree-pm ${filt.pm === pm ? "sel" : ""}`}
-                        onClick={e => clickPM(proj, u, pm, e)}>👤 {pm}</div>
+                    {tst[proj] && Object.keys(tree[proj]).map(u => (
+                      <React.Fragment key={u}>
+                        <div className={`tree-unit${filt.proj === proj && filt.unit === u && !filt.pm ? " sel" : ""}`}
+                          onClick={e => clickU(proj, u, e)}>
+                          {[...tree[proj][u]].length > 0 && <span className={`chv${tst[`${proj}:${u}`] ? " open" : ""}`}>▶</span>}
+                          🏢 {u}
+                        </div>
+                        {tst[`${proj}:${u}`] && [...tree[proj][u]].map(pm => (
+                          <div key={pm} className={`tree-pm${filt.pm === pm ? " sel" : ""}`}
+                            onClick={e => clickPM(proj, u, pm, e)}>👤 {pm}</div>
+                        ))}
+                      </React.Fragment>
                     ))}
                   </React.Fragment>
                 ))}
-              </React.Fragment>
-            ))}
-          </div>
+              </div>
+            </>
+          )}
         </div>
 
         {/* MAIN */}
         <div className="main-area">
           <div className="toolbar">
-            <span className="toolbar-title">
-              {filt.pm ? `${filt.pm} (${filt.unit})` : filt.unit ? `${filt.proj}/${filt.unit}` : filt.proj || "全部員工"}
-              （{list.length}人）
-            </span>
-            <span className="pill">{okCount} 已繳</span>
-            <span className="pill r">{missCount} 缺件</span>
+            <span className="toolbar-title">{filtTitle}（{list.length}人）</span>
+            <div className="tb-chips">
+              {COLS.map(g => (
+                <span key={g.id} className={`chip${activeG.has(g.id) ? " on" : ""}`}
+                  onClick={() => setActiveG(prev => { const s = new Set(prev); s.has(g.id) ? (s.size > 1 && s.delete(g.id)) : s.add(g.id); return s; })}>
+                  {g.label}
+                </span>
+              ))}
+            </div>
+            <div className="tb-sort">
+              {[["name", "姓名"], ["date-asc", "日期↑"], ["date-desc", "日期↓"]].map(([m, l]) => (
+                <button key={m} className={`sort-btn${sortMode === m ? " on" : ""}`} onClick={() => setSortMode(m)}>{l}</button>
+              ))}
+            </div>
           </div>
-          <div className="colbar">
-            <span style={{ fontSize: 11, color: "#8AB2D8", flexShrink: 0 }}>顯示欄位：</span>
-            {COLS.map(g => (
-              <span key={g.id} className={`chip ${activeG.has(g.id) ? "on" : ""}`}
-                onClick={() => setActiveG(prev => { const s = new Set(prev); s.has(g.id) ? (s.size > 1 && s.delete(g.id)) : s.add(g.id); return s; })}>
-                {g.label}
-              </span>
-            ))}
-          </div>
-          <div className="sortbar">
-            <span style={{ fontSize: 11, color: "#8AB2D8" }}>排序：</span>
-            {[["name", "姓名"], ["date-asc", "日期↑"], ["date-desc", "日期↓"]].map(([m, l]) => (
-              <button key={m} className={`sort-btn ${sortMode === m ? "on" : ""}`} onClick={() => setSortMode(m)}>{l}</button>
-            ))}
-            <div className="vsep" />
-            <span style={{ fontSize: 11, color: "#8AB2D8" }}>月份：</span>
-            <button className={`sort-btn ${!df ? "on" : ""}`} onClick={() => setDf("")}>全部</button>
-            {["P01","P02","P03","P04","P05","P06","P07","P08","P09","P10","P11","P12"].map(m => (
-              <button key={m} className={`sort-btn ${df === `${year}-${m}` ? "on" : ""}`}
-                onClick={() => setDf(df === `${year}-${m}` ? "" : `${year}-${m}`)} style={{ padding: "2px 6px" }}>{m}</button>
-            ))}
-          </div>
-          <div className="table-wrap">
+
+          {/* TABLE — desktop */}
+          <div className="table-wrap desk-only">
             <table>
               <thead><tr>
                 <th className="nc">姓名</th>
                 <th className="dc">上傳日期</th>
-                {flat.map(s => <th key={s.id} style={{ width: Math.max(60, 110 / flat.length | 0) }}>{s.label}</th>)}
+                {flat.map(s => <th key={s.id}>{s.label}</th>)}
               </tr></thead>
               <tbody>
                 {grouped
@@ -709,14 +732,39 @@ export default function Kanban() {
               </tbody>
             </table>
           </div>
+
+          {/* CARD LIST — mobile */}
+          <div className="card-list mob-only">
+            {list.length === 0 && <div style={{ textAlign: "center", padding: 32, color: "#888", fontSize: 13 }}>查無符合條件的員工</div>}
+            {list.map(e => (
+              <div key={e.id} className={`emp-card${selId === e.id ? " sel" : ""}`} onClick={() => { onSelectEmp(e.id); setRpOpen(true); setCurRT("files"); }}>
+                <div className="emp-avatar">{(e.cn || e.en || "?")[0]}</div>
+                <div className="emp-card-info">
+                  <div className="emp-card-name">{e.cn || e.en}</div>
+                  <div className="emp-card-sub">{e.cn && e.en ? `${e.en} · ` : ""}{e.unit || e.proj}</div>
+                  <div className="emp-card-badges">
+                    {flat.map(s => {
+                      const st = getStatus(e, s.id);
+                      if (st === "na") return null;
+                      return (
+                        <span key={s.id} className={`bdg ${st}`} onClick={ev => cycleStatus(ev, e.id, s.id)}>
+                          <span className={`dot ${st}`} />{s.label}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
 
         {/* RIGHT PANEL */}
-        <div className={`right-panel ${rpOpen ? "open" : ""}`}>
-          <div className="sheet-handle" onClick={() => setRpOpen(false)} style={{ cursor: "pointer" }} />
+        <div className={`right-panel${rpOpen ? " open" : ""}`}>
+          <div className="sheet-handle" onClick={() => setRpOpen(false)} />
           <div className="rtabs">
-            <div className={`rtab ${curRT === "files" ? "on" : ""}`} onClick={() => setCurRT("files")}>📁 檔案</div>
-            <div className={`rtab ${curRT === "form" ? "on" : ""}`} onClick={() => setCurRT("form")}>✏️ 填寫</div>
+            <div className={`rtab${curRT === "files" ? " on" : ""}`} onClick={() => setCurRT("files")}>📁 檔案</div>
+            <div className={`rtab${curRT === "form" ? " on" : ""}`} onClick={() => setCurRT("form")}>✏️ 填寫</div>
           </div>
           <div className="rpanel">
             {!selEmp
@@ -744,10 +792,60 @@ export default function Kanban() {
 
       {/* MOBILE BOTTOM NAV */}
       <div className="mob-bottom-nav">
-        <button className={`mob-nav-btn ${!rpOpen ? "active" : ""}`} onClick={() => setRpOpen(false)}><span>📋</span><span>看板</span></button>
-        <button className={`mob-nav-btn ${rpOpen && curRT === "files" ? "active" : ""}`} onClick={() => { setCurRT("files"); setRpOpen(true); }}><span>📁</span><span>檔案</span></button>
-        <button className={`mob-nav-btn ${rpOpen && curRT === "form" ? "active" : ""}`} onClick={() => { setCurRT("form"); setRpOpen(true); }}><span>✏️</span><span>填寫</span></button>
+        <button className={`mob-nav-btn${!rpOpen && mobilePage !== "more" ? " active" : ""}`}
+          onClick={() => { setRpOpen(false); setMobilePage("kanban"); }}>
+          <span>📋</span><span>看板</span>
+        </button>
+        <button className={`mob-nav-btn${rpOpen && curRT === "files" ? " active" : ""}`}
+          onClick={() => { setCurRT("files"); setRpOpen(true); setMobilePage("kanban"); }}>
+          <span>📁</span><span>檔案</span>
+        </button>
+        <button className={`mob-nav-btn${rpOpen && curRT === "form" ? " active" : ""}`}
+          onClick={() => { setCurRT("form"); setRpOpen(true); setMobilePage("kanban"); }}>
+          <span>✏️</span><span>填寫</span>
+        </button>
+        <button className={`mob-nav-btn${mobilePage === "more" ? " active" : ""}`}
+          onClick={() => { setRpOpen(false); setMobilePage(mobilePage === "more" ? "kanban" : "more"); }}>
+          <span>⋯</span><span>更多</span>
+        </button>
       </div>
+
+      {/* MOBILE MORE OVERLAY */}
+      {mobilePage === "more" && (
+        <div className="mob-more-overlay">
+          <div className="mob-more-section-label">操作</div>
+          <div className="mob-more-grid">
+            {[
+              { icon: "📂", label: "導入", action: () => { setMobilePage("kanban"); setModal({ type: "import" }); } },
+              { icon: "🔄", label: "掃描", action: () => { setMobilePage("kanban"); handleScan(); } },
+              { icon: "⬇", label: "下載", action: () => { setMobilePage("kanban"); setModal({ type: "download" }); } },
+              { icon: "📝", label: "寫入", action: () => { setMobilePage("kanban"); setModal({ type: "write" }); } },
+              { icon: "🔍", label: "核對", action: () => { setMobilePage("kanban"); setModal({ type: "verify-multi", item: "all" }); } },
+              { icon: "☁", label: isDirty ? "同步 ●" : "已同步", action: syncAll },
+              { icon: "🗑", label: "清空", action: () => { setMobilePage("kanban"); setModal({ type: "clear" }); }, danger: true },
+            ].map(({ icon, label, action, danger }) => (
+              <button key={label} className={`mob-more-btn${danger ? " danger" : ""}`} onClick={action}>
+                <span>{icon}</span><span>{label}</span>
+              </button>
+            ))}
+          </div>
+          <div className="mob-more-section-label" style={{ marginTop: 16 }}>月份切換</div>
+          <div className="mob-more-period">
+            <select className="year-sel" value={year} onChange={e => setYear(e.target.value)}>
+              {["2024","2025","2026","2027"].map(y => <option key={y}>{y}</option>)}
+            </select>
+            <div className="period-months" style={{ marginTop: 6 }}>
+              <button className={`pm-btn${!df ? " on" : ""}`} onClick={() => setDf("")}>全部</button>
+              {["P01","P02","P03","P04","P05","P06","P07","P08","P09","P10","P11","P12"].map(m => (
+                <button key={m} className={`pm-btn${df === `${year}-${m}` ? " on" : ""}`}
+                  onClick={() => setDf(df === `${year}-${m}` ? "" : `${year}-${m}`)}>
+                  {m}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* MODALS */}
       {modal?.type === "clear" && <ClearModal onClose={() => setModal(null)} show={show} onDone={() => { setKanban([]); setModal(null); }} />}
@@ -755,11 +853,7 @@ export default function Kanban() {
       {modal?.type === "write" && <WriteModal forms={Object.fromEntries(kanban.map(e => [e.en, forms[e.id] || mkForm()]))} onClose={() => setModal(null)} show={show} />}
       {modal?.type === "download" && <DownloadModal allEmps={kanban} onClose={() => setModal(null)} show={show} />}
       {modal?.type === "verify-multi" && (
-        <VerifyMultiModal
-          allEmps={kanban} forms={forms} mkForm={mkForm}
-          defaultItem={modal.item}
-          onClose={() => setModal(null)} show={show}
-        />
+        <VerifyMultiModal allEmps={kanban} forms={forms} mkForm={mkForm} defaultItem={modal.item} onClose={() => setModal(null)} show={show} />
       )}
       {modal?.type === "pdf" && (
         <div className="modal-overlay" onClick={() => setModal(null)}>
@@ -796,6 +890,8 @@ export default function Kanban() {
         </div>
       )}
       {Toast}
+    </div>
+  );
     </div>
   );
 }
