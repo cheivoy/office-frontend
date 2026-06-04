@@ -5,13 +5,12 @@ import {
   clearAll, clearInbox, clearDepartments, deleteFile,
   moveFile, uploadToEmployee,
   getAllForms, saveForm, saveFormsBulk,
-  getAllProgress, saveProgressUnit, saveProgressBulk
+  getAllProgress, saveProgressBulk
 } from "../api";
 import { useToast, useApi, useDropdown } from "../hooks";
 import WriteModal from "./WriteModal";
 import DownloadModal from "./DownloadModal";
 import ImportModal from "./ImportModal";
-import VerifyModal from "./VerifyModal";
 
 const COLS = [
   { id: "tr", label: "TR", subs: [{ id: "task_report", label: "Task Report" }, { id: "tr_approval", label: "TR Approval" }] },
@@ -1018,7 +1017,7 @@ function VerifyMultiModal({ allEmps, forms, mkForm, defaultItem, onClose, show }
   const [essFile, setEssFile] = useState(null);
   const [results, setResults] = useState(null);
   const [step, setStep] = useState("select"); // select | upload | result
-  const { loading, run } = useApi();
+  const { loading } = useApi();
 
   const filteredEmps = allEmps.filter(e => {
     const u = (e.unit || "").toLowerCase(); const n = (e.cn + e.en).toLowerCase();
