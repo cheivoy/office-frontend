@@ -184,3 +184,14 @@ export const uploadToEmployee = (empEn, period, files) => {
   files.forEach(f => fd.append("files", f));
   return req("POST", "/api/upload-to-employee", fd, true);
 };
+
+// ── Sync (Forms & Progress) ──────────────────────────────────────
+export const getAllForms        = (period = "")   => req("GET",  `/api/forms${period ? "?period=" + encodeURIComponent(period) : ""}`);
+export const getForm            = (empEn)         => req("GET",  `/api/forms/${encodeURIComponent(empEn)}`);
+export const saveForm           = (empEn, data)   => req("PUT",  `/api/forms/${encodeURIComponent(empEn)}`, data);
+export const saveFormsBulk      = (data)          => req("PUT",  "/api/forms", data);
+export const deleteFormApi      = (empEn)         => req("DELETE",`/api/forms/${encodeURIComponent(empEn)}`);
+
+export const getAllProgress      = ()              => req("GET",  "/api/progress");
+export const saveProgressUnit   = (unitKey, data) => req("PUT",  `/api/progress/${encodeURIComponent(unitKey)}`, data);
+export const saveProgressBulk   = (data)          => req("PUT",  "/api/progress", data);

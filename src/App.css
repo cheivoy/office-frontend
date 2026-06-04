@@ -322,3 +322,12 @@ tbody td.nc{text-align:left;padding-left:8px}
   tbody td:nth-child(n+4){display:none}
   .people-table th:nth-child(n+4),.people-table td:nth-child(n+4){display:none}
 }
+
+/* ── PROGRESS BAR ROWS ── */
+tbody tr.prog-row td{padding:0;background:var(--b50)}
+tbody tr.prog-row:hover td{background:var(--b50)}
+
+/* ── YEAR FILTER in sortbar ── */
+.year-badge{font-size:10px;padding:1px 6px;border-radius:10px;
+            background:var(--b100);color:var(--b800);border:1px solid var(--bd);
+            font-weight:500;white-space:nowrap}
