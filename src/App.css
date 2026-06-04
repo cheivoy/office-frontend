@@ -6,6 +6,11 @@
   padding: 0
 }
 
+html, body {
+  height: 100%;
+  overflow: hidden
+}
+
 :root {
   --b50: #F0F6FE;
   --b100: #DAE9FB;
@@ -260,7 +265,9 @@ body {
 .app-root {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  position: fixed;
+  inset: 0;
+  height: 100%;
   overflow: hidden
 }
 
@@ -290,7 +297,7 @@ body {
   transition: width .2s ease;
   overflow: hidden;
   position: relative;
-  z-index: 250
+  z-index: 5
 }
 
 .sidebar.collapsed {
