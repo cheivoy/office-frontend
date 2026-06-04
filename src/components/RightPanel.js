@@ -136,7 +136,7 @@ export default function RightPanel({ emp, curRT, setCurRT, activeG, form, setFor
             {!loading && files.length === 0 && <div style={{ fontSize: 12, color: "#888" }}>暫無歸檔檔案</div>}
             {files.map(f => (
               <div key={f.name} className="file-row" onClick={() => openFile(f)}>
-                <span className={`ftype ${f.type}`}>{f.type.toUpperCase()}</span>
+                <span className={`ftype ${f.type}`}>{(f.type || "other").toUpperCase()}</span>
                 <span className="fname">{f.name}</span>
                 <span>👁</span>
               </div>

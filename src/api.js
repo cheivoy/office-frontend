@@ -166,8 +166,8 @@ export const scanInboxWithPeriod = (period) => {
 export const clearAll          = () => req("DELETE", "/api/clear-all");
 export const clearInbox        = () => req("DELETE", "/api/clear-inbox");
 export const clearDepartments  = () => req("DELETE", "/api/clear-departments");
-export const deleteFile = (empEn, filePath) =>
-  req("DELETE", `/api/delete-file/${encodeURIComponent(empEn)}/${encodeURIComponent(filePath)}`);
+export const deleteFile = (empEn, filePath, period = "") =>
+  req("DELETE", `/api/delete-file/${encodeURIComponent(empEn)}/${filePath.split("/").map(encodeURIComponent).join("/")}${period ? "?period=" + encodeURIComponent(period) : ""}`);
 export const moveFile = (empEn, filePath, targetEmp, targetPeriod="", copy=false) => {
   const fd = new FormData();
   fd.append("emp_en", empEn);

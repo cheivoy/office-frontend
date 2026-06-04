@@ -83,10 +83,17 @@ export default function ImportModal({ onClose, show, onScanDone }) {
 
   const loadPeople = useCallback(async () => {
     try {
-      const res = await fetch(`${BASE}/api/people`);
-      setPeople(await res.json());
+      // 用當前選擇的月份名單；若該月份沒有專屬名單，後端會自動回退全域名單
+      let res = await fetch(`${BASE}/api/people?period=${encodeURIComponent(period)}`);
+      let data = await res.json();
+      // 保險：若回傳空，再抓一次全域名單
+      if (!Array.isArray(data) || data.length === 0) {
+        res = await fetch(`${BASE}/api/people`);
+        data = await res.json();
+      }
+      setPeople(Array.isArray(data) ? data : []);
     } catch {}
-  }, []);
+  }, [period]);
 
   const loadInboxFiles = useCallback(async () => {
     try {

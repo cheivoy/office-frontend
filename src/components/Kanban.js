@@ -786,7 +786,7 @@ export default function Kanban() {
                     allEmps={kanban} period={fullPeriod} show={show}
                     onDlZip={() => run(() => downloadZip(selEmp.en), b => downloadBlob(b, `${selEmp.en}.zip`), e => show(e, "err"))}
                     onDlAll={() => run(() => downloadAllZip(), b => downloadBlob(b, "all.zip"), e => show(e, "err"))}
-                    onDelete={f => run(() => deleteFile(selEmp.en, f.path || f.name),
+                    onDelete={f => run(() => deleteFile(selEmp.en, f.path || f.name, fullPeriod),
                       () => { setFiles(prev => prev.filter(x => x.path !== f.path)); show("已刪除", "ok"); },
                       e => show(`刪除失敗：${e}`, "err"))} />
                 : <FormTab emp={selEmp} form={getForm(selEmp.id)} activeG={activeG}
@@ -1411,7 +1411,7 @@ function FilesTab({ emp, files, setFiles, onOpen, onDlZip, onDlAll, onDelete, al
               </div>
             ) : (
               <div style={{ display: "flex", alignItems: "flex-start", gap: 4 }}>
-                <span className={`ftype ${f.type}`} style={{ flexShrink: 0, marginTop: 2 }}>{f.type.toUpperCase()}</span>
+                <span className={`ftype ${f.type || "other"}`} style={{ flexShrink: 0, marginTop: 2 }}>{(f.type || "other").toUpperCase()}</span>
                 <span style={{ flex: 1, fontSize: 11, cursor: "pointer", wordBreak: "break-all", lineHeight: 1.4 }} onClick={() => onOpen(f)}>{f.name}</span>
                 <span style={{ cursor: "pointer", fontSize: 12, color: "#8AB2D8", flexShrink: 0 }} onClick={() => onOpen(f)} title="預覽">👁</span>
                 <span style={{ cursor: "pointer", fontSize: 12, color: "#B0B0B0", flexShrink: 0 }} onClick={() => setMoveFile_(f)} title="移動/複製">📋</span>
