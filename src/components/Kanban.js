@@ -579,7 +579,6 @@ export default function Kanban() {
     unitGroups[key].emps.push(e);
   });
 
-  const isDirty = dirtyForms.size > 0 || dirtyProgress;
   const filtTitle = filt.pm ? `${filt.pm} (${filt.unit})` : filt.unit ? `${filt.proj}/${filt.unit}` : filt.proj || "全部員工";
 
   const isDirty = dirtyForms.size > 0 || dirtyProgress;
