@@ -561,8 +561,8 @@ table {
 
 thead th {
   position: sticky;
-  top: 0;
-  z-index: 2;
+  top: calc(var(--nav-h) + var(--ab-h) + var(--pr-h));
+  z-index: 170;
   background: var(--b50);
   padding: 6px 5px;
   text-align: center;
