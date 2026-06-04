@@ -892,8 +892,36 @@ export default function Kanban() {
   );
 }
 
+// ── Progress summary (for collapsed bar) ─────────────────────────────────────
+// Returns { done, total, current } for a branch (or whole def) given pstate.
+function summarizeBranch(branch, pstate) {
+  let done = 0, total = 0, current = "";
+  branch.steps.forEach(step => {
+    if (step.parallel) {
+      step.parallel.forEach(sub => {
+        total++;
+        if (pstate[`${branch.id}_${sub.id}`]?.checked) done++;
+        else if (!current) current = sub.label;
+      });
+    } else if (step.pmApprovals) {
+      step.pmApprovals.forEach(pm => {
+        total++;
+        if (pstate[`pm_${pm}`]?.checked) done++;
+        else if (!current) current = `${step.label}`;
+      });
+    } else {
+      total++;
+      if (pstate[`${branch.id}_${step.id}`]?.checked) done++;
+      else if (!current) current = step.label;
+    }
+  });
+  if (!current) current = "全部完成 ✓";
+  return { done, total, current };
+}
+
 // ── Progress Bar Component ───────────────────────────────────────────────────
 function ProgressBar({ unitKey, proj, unit, progress, setProgress }) {
+  const [expanded, setExpanded] = useState(false);
   const pkey = getProgressKey(proj, unit);
   if (!pkey) return null;
   const def = PROGRESS_DEFS[pkey];
@@ -924,16 +952,58 @@ function ProgressBar({ unitKey, proj, unit, progress, setProgress }) {
   const getFile = (branchId, stepId) => pstate[`${branchId}_${stepId}`]?.filename || "";
   const isPMChecked = (pmName) => pstate[`pm_${pmName}`]?.checked;
 
+  // Compact summary across all branches
+  const summaries = def.branches.map(b => ({ branch: b, ...summarizeBranch(b, pstate) }));
+  const totalDone = summaries.reduce((a, s) => a + s.done, 0);
+  const totalAll = summaries.reduce((a, s) => a + s.total, 0);
+  const allComplete = totalAll > 0 && totalDone === totalAll;
+
   return (
     <div style={{
       background: "linear-gradient(135deg,#EEF6FF 0%,#F5FBFF 100%)",
       border: "1px solid var(--bd)", borderRadius: 10,
-      padding: "10px 14px", marginBottom: 8
+      padding: expanded ? "10px 14px" : "7px 12px", marginBottom: 8
     }}>
-      <div style={{ fontSize: 11, fontWeight: 600, color: "var(--b600)", marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
-        📊 {def.label} 進度追蹤
-        <span style={{ fontSize: 10, fontWeight: 400, color: "#8AB2D8" }}>（{fullPeriodLabel(unitKey)}）</span>
+      {/* ── Compact summary header (always visible, clickable) ── */}
+      <div onClick={() => setExpanded(v => !v)}
+        style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", userSelect: "none" }}>
+        <span style={{ fontSize: 11, color: "var(--b600)", transform: expanded ? "rotate(90deg)" : "none", transition: "transform .15s", display: "inline-block", width: 12 }}>▶</span>
+        <span style={{ fontSize: 11, fontWeight: 600, color: "var(--b600)" }}>📊 {def.label} 進度</span>
+        {/* per-branch mini chips */}
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", flex: 1 }}>
+          {summaries.map(s => {
+            const branchDone = s.done === s.total && s.total > 0;
+            return (
+              <span key={s.branch.id} style={{
+                fontSize: 10, padding: "2px 8px", borderRadius: 20,
+                background: branchDone ? "var(--ok-bg)" : "rgba(255,255,255,.7)",
+                border: `1px solid ${branchDone ? "#90CF60" : "var(--bd)"}`,
+                color: branchDone ? "var(--ok-tx)" : "#5A7A9A", whiteSpace: "nowrap"
+              }}>
+                {s.branch.label ? `${s.branch.label}: ` : ""}
+                {branchDone ? "完成 ✓" : s.current}
+                <span style={{ marginLeft: 5, opacity: .7 }}>{s.done}/{s.total}</span>
+              </span>
+            );
+          })}
+        </div>
+        {allComplete && <span style={{ fontSize: 11, color: "var(--ok-tx)", fontWeight: 600 }}>✓</span>}
       </div>
+
+      {/* ── Full checklist (only when expanded) ── */}
+      {expanded && <FullProgress
+        def={def} pstate={pstate} setPState={setPState}
+        toggleStep={toggleStep} togglePM={togglePM} setNote={setNote} setUpload={setUpload}
+        isChecked={isChecked} getNote={getNote} getFile={getFile} isPMChecked={isPMChecked}
+        unitKey={unitKey} />}
+    </div>
+  );
+}
+
+function FullProgress({ def, pstate, setPState, toggleStep, togglePM, setNote, setUpload, isChecked, getNote, getFile, isPMChecked, unitKey }) {
+  return (
+    <div style={{ marginTop: 10 }}>
+      <div style={{ fontSize: 10, fontWeight: 400, color: "#8AB2D8", marginBottom: 8 }}>（{fullPeriodLabel(unitKey)}）</div>
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-start" }}>
         {def.branches.map(branch => (
           <div key={branch.id} style={{
@@ -947,7 +1017,7 @@ function ProgressBar({ unitKey, proj, unit, progress, setProgress }) {
               </div>
             )}
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {branch.steps.map((step, idx) => {
+              {branch.steps.map((step) => {
                 if (step.parallel) {
                   // All parallel sub-steps
                   const allDone = step.parallel.every(s => isChecked(branch.id, s.id));
