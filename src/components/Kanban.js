@@ -220,6 +220,7 @@ function deserializeFormsWithKanban(raw, kanban) {
     const emp = kanban ? kanban.find(e => e.en === empEn) : null;
     const key = emp ? emp.id : empEn;
     out[key] = {
+      ess: [], ns: [], ot: [], ta: [], leave: [],
       ...raw[empEn],
       checkedSecs: Array.isArray(raw[empEn].checkedSecs)
         ? new Set(raw[empEn].checkedSecs)
@@ -233,6 +234,7 @@ function deserializeForms(raw) {
   const out = {};
   Object.keys(raw).forEach(id => {
     out[id] = {
+      ess: [], ns: [], ot: [], ta: [], leave: [],
       ...raw[id],
       checkedSecs: Array.isArray(raw[id].checkedSecs)
         ? new Set(raw[id].checkedSecs)
@@ -1578,15 +1580,25 @@ function FilesTab({ emp, files, setFiles, onOpen, onDlZip, onDlAll, onDelete, al
 }
 
 // ── FormTab ──────────────────────────────────────────────────────────────────
-function FormTab({ emp, form, activeG, onToggleSec, onAddRow, onRmRow, onUpdRow, onSetWD, isDirty, onSync }) {
+function FormTab({ emp, form: rawForm, activeG, onToggleSec, onAddRow, onRmRow, onUpdRow, onSetWD, isDirty, onSync }) {
   const [syncing, setSyncing] = useState(false);
-  const checked = form.checkedSecs || new Set(["tr"]);
+  // Guard against older data shapes (pre ESS/NS split) where some arrays are missing.
+  const form = {
+    workdays: rawForm.workdays ?? "",
+    checkedSecs: rawForm.checkedSecs || new Set(["tr"]),
+    ess: Array.isArray(rawForm.ess) ? rawForm.ess : [],
+    ns: Array.isArray(rawForm.ns) ? rawForm.ns : [],
+    ot: Array.isArray(rawForm.ot) ? rawForm.ot : [],
+    ta: Array.isArray(rawForm.ta) ? rawForm.ta : [],
+    leave: Array.isArray(rawForm.leave) ? rawForm.leave : [],
+  };
+  const checked = form.checkedSecs;
   const essTotal = form.ess.reduce((a, r) => a + (parseFloat(r.amount) || 0), 0);
-  const nsTotal = (form.ns || []).reduce((a, r) => a + (parseFloat(r.amount) || 0), 0);
+  const nsTotal = form.ns.reduce((a, r) => a + (parseFloat(r.amount) || 0), 0);
   const taTotal = form.ta.reduce((a, r) => a + (parseFloat(r.amount) || 0), 0);
   const warns = [];
   if (activeG.has("ess") && checked.has("ess") && !form.ess.length) warns.push("ESS 已勾選但未填寫");
-  if (activeG.has("ns") && checked.has("ns") && !(form.ns || []).length) warns.push("NS 已勾選但未填寫");
+  if (activeG.has("ns") && checked.has("ns") && !form.ns.length) warns.push("NS 已勾選但未填寫");
   if (activeG.has("ot") && checked.has("ot") && !form.ot.length) warns.push("OT 已勾選但未填寫");
   if (activeG.has("travel") && checked.has("travel") && !form.ta.length) warns.push("差旅已勾選但未填寫");
   if (activeG.has("leave") && checked.has("leave") && !form.leave.length) warns.push("請假已勾選但未填寫");
