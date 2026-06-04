@@ -195,3 +195,14 @@ export const deleteFormApi      = (empEn)         => req("DELETE",`/api/forms/${
 export const getAllProgress      = ()              => req("GET",  "/api/progress");
 export const saveProgressUnit   = (unitKey, data) => req("PUT",  `/api/progress/${encodeURIComponent(unitKey)}`, data);
 export const saveProgressBulk   = (data)          => req("PUT",  "/api/progress", data);
+
+// ── Period-aware people import ───────────────────────────────────
+export const importPeopleForPeriod = (file, period) => {
+  const fd = new FormData();
+  fd.append("file", file);
+  if (period) fd.append("period", period);
+  return req("POST", "/api/people/import", fd, true);
+};
+export const getPeopleForPeriod = (period) =>
+  req("GET", `/api/people${period ? "?period=" + encodeURIComponent(period) : ""}`);
+export const getRosterPeriods = () => req("GET", "/api/people/roster-periods");

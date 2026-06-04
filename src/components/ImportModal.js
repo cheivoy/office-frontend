@@ -6,7 +6,7 @@ const BASE = process.env.REACT_APP_API_URL || "";
 const YEARS  = ["2025","2026","2027"];
 const MONTHS = ["P01","P02","P03","P04","P05","P06","P07","P08","P09","P10","P11","P12"];
 
-// Stable searchable employee select - avoids re-render losing focus
+// Stable searchable employee select
 function EmpSelect({ value, onChange, people }) {
   const [search, setSearch] = useState("");
   const inputRef = useRef(null);
@@ -62,19 +62,22 @@ function EmpSelect({ value, onChange, people }) {
 }
 
 export default function ImportModal({ onClose, show, onScanDone }) {
-  const [year,       setYear]       = useState("2026");
-  const [month,      setMonth]      = useState("P05");
-  const [step,       setStep]       = useState("select");
-  const [result,     setResult]     = useState(null);
-  const [duplicates, setDuplicates] = useState([]);
-  const [pendingFiles,setPending]   = useState([]);
-  const [scanResult, setScanResult] = useState(null);
-  // scan review: moved grouped + unmatched
-  const [movedGroups,setMovedGroups]= useState({});  // {emp_en: [{file,type,dest,...}]}
-  const [unmatched,  setUnmatched]  = useState([]);
-  const [assigns,    setAssigns]    = useState({});   // {inbox_path: emp_en}
-  const [people,     setPeople]     = useState([]);
-  const { loading, run }            = useApi();
+  const [year,        setYear]       = useState("2026");
+  const [month,       setMonth]      = useState("P05");
+  const [step,        setStep]       = useState("select");
+  const [result,      setResult]     = useState(null);
+  const [duplicates,  setDuplicates] = useState([]);
+  const [pendingFiles,setPending]    = useState([]);
+  const [scanResult,  setScanResult] = useState(null);
+  const [movedGroups, setMovedGroups]= useState({});
+  const [unmatched,   setUnmatched]  = useState([]);
+  // assigns: {inbox_path: emp_en} — for both unmatched AND matched (allow override)
+  const [assigns,     setAssigns]    = useState({});
+  // overrides: {emp_en: new_emp_en} — allow reassigning an already-matched file
+  const [overrides,   setOverrides]  = useState({});
+  const [people,      setPeople]     = useState([]);
+  const [inboxFiles,  setInboxFiles] = useState([]); // files still in inbox after review
+  const { loading, run }             = useApi();
 
   const period = `${year}-${month}`;
 
@@ -85,12 +88,34 @@ export default function ImportModal({ onClose, show, onScanDone }) {
     } catch {}
   }, []);
 
+  const loadInboxFiles = useCallback(async () => {
+    try {
+      const res = await fetch(`${BASE}/api/inbox-files`);
+      const data = await res.json();
+      setInboxFiles(data.files || []);
+    } catch {}
+  }, []);
+
+  // ── Issue 1 fix: handle both single files and folder uploads uniformly ──
   const doImport = (files) => {
-    if (!files.length) return;
+    if (!files || !files.length) return;
     setStep("importing");
     const fileArr = [...files];
+
+    // Build FormData manually to send webkitRelativePath as filename
+    // This ensures single-file and folder uploads both work.
+    const fd = new FormData();
+    fileArr.forEach(f => {
+      // For folder uploads, use relative path; for single files, just the name
+      const name = f.webkitRelativePath || f.name;
+      fd.append("files", f, name);
+    });
+
+    const doFetch = () => fetch(`${BASE}/api/import-files`, { method: "POST", body: fd })
+      .then(r => { if (!r.ok) throw new Error(r.statusText); return r.json(); });
+
     run(
-      () => importFiles(fileArr),
+      doFetch,
       res => {
         setResult(res);
         if (res.duplicates && res.duplicates.length > 0) {
@@ -111,8 +136,14 @@ export default function ImportModal({ onClose, show, onScanDone }) {
 
   const forceImport = () => {
     if (!pendingFiles.length) { doScan(); return; }
-    run(() => importFilesForce(pendingFiles), () => doScan(),
-        e => show(`強制導入失敗：${e}`, "err"));
+    const fd = new FormData();
+    pendingFiles.forEach(f => {
+      const name = f.webkitRelativePath || f.name;
+      fd.append("files", f, name);
+    });
+    const doFetch = () => fetch(`${BASE}/api/import-files-force`, { method: "POST", body: fd })
+      .then(r => { if (!r.ok) throw new Error(r.statusText); return r.json(); });
+    run(doFetch, () => doScan(), e => show(`強制導入失敗：${e}`, "err"));
   };
 
   const doScan = () => {
@@ -121,7 +152,6 @@ export default function ImportModal({ onClose, show, onScanDone }) {
       () => scanInboxWithPeriod(period),
       res => {
         setScanResult(res);
-        // Group moved files by employee
         const groups = {};
         (res.moved || []).forEach(m => {
           const key = m.emp_en || m.emp;
@@ -130,28 +160,58 @@ export default function ImportModal({ onClose, show, onScanDone }) {
         });
         setMovedGroups(groups);
         setUnmatched(res.unmatched || []);
-        if ((res.unmatched||[]).length > 0) loadPeople();
-        setStep("review");  // always show review
+        loadPeople();
+        // Always load inbox remainder so "稍後處理" users can find files again
+        loadInboxFiles();
+        setStep("review");
       },
       e => { show(`掃描失敗：${e}`, "err"); setStep("select"); }
     );
   };
 
   const confirmReview = async () => {
-    // Send manual assignments
-    const promises = Object.entries(assigns)
+    const promises = [];
+
+    // Manual assigns for unmatched files
+    Object.entries(assigns)
       .filter(([,emp]) => emp)
-      .map(([inbox_path, emp_name]) => {
+      .forEach(([inbox_path, emp_name]) => {
         const fd = new FormData();
         fd.append("inbox_path", inbox_path);
         fd.append("emp_name",   emp_name);
         fd.append("period",     period);
-        return fetch(`${BASE}/api/assign-manual`, { method:"POST", body:fd });
+        promises.push(fetch(`${BASE}/api/assign-manual`, { method:"POST", body:fd }));
       });
+
+    // Overrides: reassign already-matched files to a different employee
+    // We do this via move-file API
+    for (const [origEmpEn, newEmpEn] of Object.entries(overrides)) {
+      if (!newEmpEn || newEmpEn === origEmpEn) continue;
+      const grp = movedGroups[origEmpEn];
+      if (!grp) continue;
+      for (const f of grp.files) {
+        const fd = new FormData();
+        fd.append("emp_en",       origEmpEn);
+        fd.append("file_path",    f.dest.split("/").pop()); // just filename
+        fd.append("target_emp",   newEmpEn);
+        fd.append("target_period", period);
+        fd.append("do_copy",      "false");
+        promises.push(fetch(`${BASE}/api/move-file`, { method:"POST", body:fd }));
+      }
+    }
+
     if (promises.length) await Promise.all(promises);
     setStep("done");
     onScanDone && onScanDone(scanResult);
     show("歸檔完成", "ok");
+  };
+
+  // ── Issue 4: re-open inbox file list ──
+  const goToInbox = () => {
+    onClose();
+    // Trigger inbox view — parent component handles this if they pass a callback;
+    // for now we show a toast hint.
+    show("請使用「掃描」按鈕重新處理 Inbox 中的檔案", "info");
   };
 
   const FILE_TYPE_LABEL = {
@@ -204,23 +264,36 @@ export default function ImportModal({ onClose, show, onScanDone }) {
               </div>
             </div>
             <div style={{display:"flex",gap:8}}>
+              {/* Single file upload */}
               <label style={{flex:1,border:"1.5px dashed var(--bd2)",borderRadius:8,padding:14,
                              textAlign:"center",cursor:"pointer",fontSize:12,color:"#888"}}>
                 <div style={{fontSize:22,marginBottom:4}}>📄</div>
                 <div style={{fontWeight:500,color:"var(--b800)"}}>選擇多個檔案</div>
                 <div style={{fontSize:11}}>PDF / xlsx / eml</div>
                 <input type="file" multiple style={{display:"none"}}
-                       onChange={e=>doImport(e.target.files)}/>
+                       onChange={e => doImport(e.target.files)}/>
               </label>
+              {/* Folder upload */}
               <label style={{flex:1,border:"1.5px dashed var(--bd2)",borderRadius:8,padding:14,
                              textAlign:"center",cursor:"pointer",fontSize:12,color:"#888"}}>
                 <div style={{fontSize:22,marginBottom:4}}>🗂</div>
                 <div style={{fontWeight:500,color:"var(--b800)"}}>選擇資料夾</div>
                 <div style={{fontSize:11}}>資料夾名稱比對員工</div>
                 <input type="file" style={{display:"none"}} webkitdirectory=""
-                       onChange={e=>doImport(e.target.files)}/>
+                       onChange={e => doImport(e.target.files)}/>
               </label>
             </div>
+
+            {/* Issue 4: Show inbox reminder if there are leftover files */}
+            {inboxFiles.length > 0 && (
+              <div style={{marginTop:12,padding:"8px 10px",background:"var(--warn-bg)",
+                           border:"1px solid #F0D080",borderRadius:7,fontSize:11,
+                           color:"var(--warn-tx)"}}>
+                📥 Inbox 中還有 <strong>{inboxFiles.length}</strong> 個未處理檔案（稍後處理的）。
+                <button className="btn sm" style={{marginLeft:8,fontSize:10,padding:"2px 8px"}}
+                        onClick={doScan}>重新掃描</button>
+              </div>
+            )}
           </>}
 
           {/* ── IMPORTING / SCANNING ── */}
@@ -246,7 +319,7 @@ export default function ImportModal({ onClose, show, onScanDone }) {
 
           {/* ── REVIEW ── */}
           {step==="review" && <>
-            {/* Matched files grouped by employee */}
+            {/* Matched files grouped by employee — with optional override */}
             {Object.keys(movedGroups).length > 0 && <>
               <div style={{fontSize:11,fontWeight:500,color:"var(--b800)",marginBottom:8}}>
                 ✅ 已自動歸檔 {Object.values(movedGroups).reduce((a,g)=>a+g.files.length,0)} 個檔案：
@@ -276,17 +349,29 @@ export default function ImportModal({ onClose, show, onScanDone }) {
                       </span>
                     </div>
                   ))}
+                  {/* Issue 3: allow reassigning matched files */}
+                  <div style={{padding:"6px 10px",borderTop:"1px solid var(--bd)",
+                               background:"#FAFCFF"}}>
+                    <div style={{fontSize:10,color:"#8AB2D8",marginBottom:4}}>
+                      🔀 重新指定歸檔人員（可選）：
+                    </div>
+                    <EmpSelect
+                      value={overrides[empEn]||""}
+                      onChange={v => setOverrides(p=>({...p,[empEn]:v}))}
+                      people={people.filter(p => p.en !== empEn)}
+                    />
+                  </div>
                 </div>
               ))}
             </>}
 
-            {/* Unmatched - manual assign */}
+            {/* Unmatched - manual assign (required) */}
             {unmatched.length > 0 && <>
               <div style={{fontSize:11,fontWeight:500,color:"var(--warn-tx)",
                            marginBottom:8,marginTop:12,
                            background:"var(--warn-bg)",border:"1px solid #F0D080",
                            borderRadius:7,padding:"7px 10px"}}>
-                ⚠️ {unmatched.length} 個檔案無法自動識別，請手動指定員工：
+                ⚠️ {unmatched.length} 個檔案無法自動識別，請指定歸檔人員（或稍後處理）：
               </div>
               {unmatched.map((u,i) => (
                 <div key={i} style={{marginBottom:8,padding:"8px",background:"var(--b50)",
@@ -295,6 +380,7 @@ export default function ImportModal({ onClose, show, onScanDone }) {
                                marginBottom:6,color:"var(--b800)"}}>
                     📄 {u.file}
                   </div>
+                  {/* Issue 3: full employee selector for unmatched */}
                   <EmpSelect
                     value={assigns[u.inbox_path]||""}
                     onChange={v => setAssigns(p=>({...p,[u.inbox_path]:v}))}
@@ -325,6 +411,16 @@ export default function ImportModal({ onClose, show, onScanDone }) {
               {scanResult&&<div style={{fontSize:12,color:"#555"}}>
                 自動歸檔 {scanResult.moved?.length||0} 個
               </div>}
+              {/* Issue 4: Show if files remain in inbox */}
+              {unmatched.length > 0 && (
+                Object.keys(assigns).filter(k=>assigns[k]).length < unmatched.length
+              ) && (
+                <div style={{marginTop:10,fontSize:11,color:"var(--warn-tx)",
+                             background:"var(--warn-bg)",border:"1px solid #F0D080",
+                             borderRadius:6,padding:"6px 10px"}}>
+                  📥 部分檔案已留在 Inbox，下次點「導入」時會提示重新掃描。
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -340,7 +436,11 @@ export default function ImportModal({ onClose, show, onScanDone }) {
             </button>
           </>}
           {step==="review" && <>
-            <button className="btn" onClick={onClose}>稍後處理</button>
+            {/* Issue 4: 稍後處理 now keeps files in inbox and explains */}
+            <button className="btn" onClick={() => {
+              setStep("done");
+              show("未指定的檔案保留在 Inbox，下次導入時可繼續處理", "info");
+            }}>稍後處理</button>
             <button className="btn blue" onClick={confirmReview} disabled={loading}>
               {loading?<span className="spinner"/>:"✓"} 確認完成
             </button>

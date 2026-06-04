@@ -474,7 +474,8 @@ export default function Kanban() {
     if (filt.unit) list = list.filter(e => (e.unit || "—") === filt.unit);
     if (filt.pm) list = list.filter(e => e.pm === filt.pm);
     if (q) { const ql = q.toLowerCase(); list = list.filter(e => (e.cn + e.en).toLowerCase().includes(ql)); }
-    if (df) list = list.filter(e => (e.periods || []).some(p => p === df));
+    // Issue 5 fix: do NOT filter out employees when period is selected
+    // Instead, show all employees and reflect their status for that period
     if (sortMode === "name") list.sort((a, b) => (a.cn || a.en).localeCompare(b.cn || b.en, "zh"));
     else if (sortMode === "date-asc") list.sort((a, b) => (a.uploadDate || "").localeCompare(b.uploadDate || ""));
     else list.sort((a, b) => (b.uploadDate || "").localeCompare(a.uploadDate || ""));
@@ -513,7 +514,20 @@ export default function Kanban() {
       return { ...prev, [eid]: { ...(prev[eid] || emp?.status || {}), [col]: next } };
     });
   };
-  const getStatus = (emp, col) => (statuses[emp.id] || emp.status || {})[col] || "na";
+  // Issue 5 fix: when a period is selected (df), read status from periodStatus[df]
+  // This way employees with NO files for that period still appear (as "na" / missing)
+  const getStatus = (emp, col) => {
+    // Manual overrides (clicked in UI) always take precedence
+    if (statuses[emp.id] && statuses[emp.id][col] !== undefined) {
+      return statuses[emp.id][col];
+    }
+    if (df && emp.periodStatus) {
+      // Use per-period status from backend
+      const pStat = emp.periodStatus[df] || {};
+      return pStat[col] || "na";
+    }
+    return (emp.status || {})[col] || "na";
+  };
   const selEmp = kanban.find(e => e.id === selId);
   const getForm = (eid) => forms[eid] || mkForm();
   const setForm = (eid, f) => {
