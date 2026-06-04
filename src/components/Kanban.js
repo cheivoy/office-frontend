@@ -285,7 +285,7 @@ export default function Kanban() {
   const [modal, setModal] = useState(null);
   const [rpOpen, setRpOpen] = useState(false);
   const [mobilePage, setMobilePage] = useState("kanban"); // "kanban" | "more"
-  const [period, setPeriod] = useState("P05");
+  const [period] = useState("P05");
   const [year, setYear] = useState("2026");
   const [progress, setProgress] = useState({});
   // Sync status tracking
