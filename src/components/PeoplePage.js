@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { getPeople, getPeopleForPeriod, upsertPerson, deletePerson,
-         importPeople, importPeopleForPeriod, getRosterPeriods } from "../api";
+         importPeople, importPeopleForPeriod, getRosterPeriods,
+         upsertPersonPeriod, deletePersonPeriod, deleteRoster } from "../api";
 import { useToast, useApi } from "../hooks";
 
 const blank = { proj: "", unit: "", pm: "", cn: "", en: "" };
@@ -33,16 +34,39 @@ export default function PeoplePage() {
 
   const save = () => {
     if (!draft.en.trim()) { show("英文姓名為必填", "err"); return; }
+    const id = editing === "new" ? undefined : editing;
     run(
-      () => upsertPerson({ ...draft, id: editing === "new" ? undefined : editing }),
+      () => viewPeriod
+        ? upsertPersonPeriod({ ...draft, id }, viewPeriod)
+        : upsertPerson({ ...draft, id }),
       () => { load(); setEditing(null); setDraft(blank); show("儲存成功"); },
       e => show(`儲存失敗：${e}`, "err")
     );
   };
 
   const del = (id, name) => {
-    if (!window.confirm(`確定刪除 ${name}？`)) return;
-    run(() => deletePerson(id), () => { load(); show("已刪除"); }, e => show(e, "err"));
+    const where = viewPeriod ? `${viewPeriod} 名單` : "全域名單";
+    if (!window.confirm(`確定從${where}刪除 ${name}？`)) return;
+    run(
+      () => viewPeriod ? deletePersonPeriod(id, viewPeriod) : deletePerson(id),
+      () => { load(); show("已刪除"); },
+      e => show(e, "err")
+    );
+  };
+
+  const delRoster = () => {
+    if (!viewPeriod) return;
+    if (!window.confirm(`確定刪除整份「${viewPeriod}」名單？\n刪除後此月份將回退使用全域名單。`)) return;
+    run(
+      () => deleteRoster(viewPeriod),
+      () => {
+        loadRosterPeriods();
+        setViewPeriod("");
+        load("");
+        show(`已刪除 ${viewPeriod} 名單`);
+      },
+      e => show(`刪除失敗：${e}`, "err")
+    );
   };
 
   const handleImport = (e) => {
@@ -168,7 +192,12 @@ export default function PeoplePage() {
                      border:"1px solid var(--bd)",borderRadius:7,fontSize:12,
                      display:"flex",alignItems:"center",gap:8}}>
           📋 目前查看：<strong>{viewPeriod}</strong> 專屬名單（{people.length} 人）
-          <button className="btn sm" style={{fontSize:10,marginLeft:"auto"}}
+          <span style={{fontSize:10,color:"#8AB2D8"}}>
+            — 在此新增/編輯/刪除只影響此月份
+          </span>
+          <button className="btn sm danger" style={{fontSize:10,marginLeft:"auto"}}
+                  onClick={delRoster} disabled={loading}>🗑 刪除整份名單</button>
+          <button className="btn sm" style={{fontSize:10}}
                   onClick={()=>switchView("")}>← 回全域名單</button>
         </div>
       )}

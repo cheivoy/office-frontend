@@ -206,3 +206,11 @@ export const importPeopleForPeriod = (file, period) => {
 export const getPeopleForPeriod = (period) =>
   req("GET", `/api/people${period ? "?period=" + encodeURIComponent(period) : ""}`);
 export const getRosterPeriods = () => req("GET", "/api/people/roster-periods");
+
+// 期別名單的編輯/刪除（帶 period 時只動該月份名單）
+export const upsertPersonPeriod = (data, period = "") =>
+  req("POST", `/api/people${period ? "?period=" + encodeURIComponent(period) : ""}`, data);
+export const deletePersonPeriod = (id, period = "") =>
+  req("DELETE", `/api/people/${id}${period ? "?period=" + encodeURIComponent(period) : ""}`);
+export const deleteRoster = (period) =>
+  req("DELETE", `/api/people/roster/${encodeURIComponent(period)}`);

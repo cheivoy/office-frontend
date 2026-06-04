@@ -50,7 +50,7 @@ function EmpSelect({ value, onChange, people }) {
         {Object.entries(filtered).map(([grp, emps]) => (
           <optgroup key={grp} label={grp}>
             {emps.map(p => (
-              <option key={p.en} value={p.en}>
+              <option key={p.id} value={p.id}>
                 {p.cn ? `${p.cn} ${p.en}` : p.en}
               </option>
             ))}
@@ -155,7 +155,7 @@ export default function ImportModal({ onClose, show, onScanDone }) {
         const groups = {};
         (res.moved || []).forEach(m => {
           const key = m.emp_en || m.emp;
-          if (!groups[key]) groups[key] = { emp_cn: m.emp_cn||"", files: [] };
+          if (!groups[key]) groups[key] = { emp_id: m.emp_id, emp_en: m.emp_en || key, emp_cn: m.emp_cn||"", files: [] };
           groups[key].files.push(m);
         });
         setMovedGroups(groups);
@@ -172,31 +172,34 @@ export default function ImportModal({ onClose, show, onScanDone }) {
   const confirmReview = async () => {
     const promises = [];
 
-    // Manual assigns for unmatched files
+    // Manual assigns for unmatched files — assigns[inbox_path] is now an emp_id
     Object.entries(assigns)
-      .filter(([,emp]) => emp)
-      .forEach(([inbox_path, emp_name]) => {
+      .filter(([, empId]) => empId)
+      .forEach(([inbox_path, empId]) => {
         const fd = new FormData();
         fd.append("inbox_path", inbox_path);
-        fd.append("emp_name",   emp_name);
-        fd.append("period",     period);
-        promises.push(fetch(`${BASE}/api/assign-manual`, { method:"POST", body:fd }));
+        fd.append("emp_id",   String(empId));
+        fd.append("period",   period);
+        promises.push(fetch(`${BASE}/api/assign-manual`, { method: "POST", body: fd }));
       });
 
-    // Overrides: reassign already-matched files to a different employee
-    // We do this via move-file API
-    for (const [origEmpEn, newEmpEn] of Object.entries(overrides)) {
-      if (!newEmpEn || newEmpEn === origEmpEn) continue;
-      const grp = movedGroups[origEmpEn];
+    // Overrides: reassign already-matched files to a different employee (by id)
+    for (const [origKey, newId] of Object.entries(overrides)) {
+      if (!newId) continue;
+      const grp = movedGroups[origKey];
       if (!grp) continue;
+      const origId = grp.emp_id;
+      if (String(newId) === String(origId)) continue;
       for (const f of grp.files) {
         const fd = new FormData();
-        fd.append("emp_en",       origEmpEn);
-        fd.append("file_path",    f.dest.split("/").pop()); // just filename
-        fd.append("target_emp",   newEmpEn);
+        fd.append("emp_en",        grp.emp_en || origKey);
+        fd.append("emp_id",        origId != null ? String(origId) : "");
+        fd.append("file_path",     f.dest.split("/").pop()); // just filename
+        fd.append("target_emp",    "");
+        fd.append("target_id",     String(newId));
         fd.append("target_period", period);
-        fd.append("do_copy",      "false");
-        promises.push(fetch(`${BASE}/api/move-file`, { method:"POST", body:fd }));
+        fd.append("do_copy",       "false");
+        promises.push(fetch(`${BASE}/api/move-file`, { method: "POST", body: fd }));
       }
     }
 
