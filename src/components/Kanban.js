@@ -5,7 +5,7 @@ import {
   clearAll, clearInbox, clearDepartments, deleteFile,
   moveFile, uploadToEmployee,
   getAllForms, saveForm, saveFormsBulk,
-  getAllProgress, saveProgressBulk, warmup
+  getAllProgress, saveProgressBulk, warmup, verifyAll
 } from "../api";
 import { useToast, useApi, useDropdown } from "../hooks";
 import WriteModal from "./WriteModal";
@@ -1304,18 +1304,55 @@ function VerifyMultiModal({ allEmps, forms, mkForm, defaultItem, onClose, show }
     const s = new Set(selectedIds); s.has(id) ? s.delete(id) : s.add(id); setSelectedIds(s);
   };
 
-  const doVerify = () => {
+  const [verifying, setVerifying] = useState(false);
+
+  const doVerify = async () => {
     const empsToVerify = allEmps.filter(e => selectedIds.has(e.id));
     if (!empsToVerify.length) { show("請選擇至少一名員工", "err"); return; }
     if (!travelFile && !otFile && !essFile) { show("請至少上傳一個核對檔案", "err"); return; }
-    // Mock multi-verify: in real implementation call API for each emp
-    const fakeResults = {};
-    empsToVerify.forEach(emp => {
-      fakeResults[emp.en] = { status: "ok", matched_rows: 0, anomalies: [] };
+
+    setVerifying(true);
+    show("核對中…（首次可能需喚醒後端）", "info");
+
+    // Build the tab payload for one employee from their filled form
+    const buildTab = (emp) => {
+      const f = forms[emp.id] || mkForm();
+      const stripSet = arr => (Array.isArray(arr) ? arr : []);
+      return {
+        ess: stripSet(f.ess),
+        ns:  stripSet(f.ns),
+        ot:  stripSet(f.ot),
+        ta:  stripSet(f.ta),
+      };
+    };
+
+    // Backend verifies one employee per call; fire them in parallel.
+    const settled = await Promise.allSettled(
+      empsToVerify.map(emp =>
+        verifyAll(emp.cn || emp.en, buildTab(emp), travelFile, otFile, essFile)
+          .then(res => ({ en: emp.en, res }))
+      )
+    );
+
+    const collected = {};
+    let okCount = 0, errCount = 0;
+    settled.forEach((s, i) => {
+      const emp = empsToVerify[i];
+      if (s.status === "fulfilled") {
+        collected[emp.en] = s.value.res;     // { travel?, ot?, ns?, ess? } each a VerifyResult dict
+        okCount++;
+      } else {
+        collected[emp.en] = { error: s.reason?.message || "核對失敗" };
+        errCount++;
+      }
     });
-    setResults(fakeResults);
+
+    setResults(collected);
     setStep("result");
-    show(`已核對 ${empsToVerify.length} 名員工`, "ok");
+    setVerifying(false);
+    show(errCount
+      ? `核對完成：${okCount} 成功、${errCount} 失敗`
+      : `✅ 已核對 ${okCount} 名員工`, errCount ? "info" : "ok");
   };
 
   const selectedEmps = allEmps.filter(e => selectedIds.has(e.id));
@@ -1375,15 +1412,42 @@ function VerifyMultiModal({ allEmps, forms, mkForm, defaultItem, onClose, show }
                 <span style={{ fontSize: 12, fontWeight: 500, color: "var(--b800)" }}>核對結果（{Object.keys(results).length} 人）</span>
                 <button className="btn sm" onClick={() => { setResults(null); setStep("select"); }}>重新選擇</button>
               </div>
-              <div style={{ maxHeight: 320, overflowY: "auto" }}>
+              <div style={{ maxHeight: 360, overflowY: "auto" }}>
                 {Object.entries(results).map(([empEn, r]) => {
                   const emp = allEmps.find(e => e.en === empEn);
+                  const LABELS = { travel: "差旅", ot: "OT", ns: "NS", ess: "ESS" };
+                  // r is either { error } or { travel?, ot?, ns?, ess? }
+                  const cats = r.error ? [] : Object.keys(LABELS).filter(k => r[k]);
+                  const anyAnomaly = cats.some(k => r[k].status === "anomaly");
                   return (
-                    <div key={empEn} style={{ padding: "6px 10px", borderBottom: "1px solid var(--bd)", display: "flex", alignItems: "center", gap: 8 }}>
-                      <span style={{ fontSize: 12, flex: 1 }}>{emp?.cn || empEn}</span>
-                      {r.status === "ok"
-                        ? <span style={{ fontSize: 11, color: "var(--ok-tx)" }}>✅ 正常</span>
-                        : <span style={{ fontSize: 11, color: "var(--miss-tx)" }}>❌ 異常（{r.anomalies?.length || 0}）</span>}
+                    <div key={empEn} style={{ padding: "8px 10px", borderBottom: "1px solid var(--bd)" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: cats.length ? 4 : 0 }}>
+                        <span style={{ fontSize: 12, fontWeight: 500, flex: 1 }}>{emp?.cn || empEn}</span>
+                        {r.error
+                          ? <span style={{ fontSize: 11, color: "var(--miss-tx)" }}>⚠️ {r.error}</span>
+                          : anyAnomaly
+                            ? <span style={{ fontSize: 11, color: "var(--miss-tx)" }}>❌ 有異常</span>
+                            : <span style={{ fontSize: 11, color: "var(--ok-tx)" }}>✅ 全部正常</span>}
+                      </div>
+                      {cats.map(k => {
+                        const c = r[k];
+                        const st = c.status;
+                        const color = st === "ok" ? "var(--ok-tx)" : st === "not_found" ? "#8A5A00" : "var(--miss-tx)";
+                        const tag = st === "ok" ? `✅ 正常（${c.matched_rows || 0} 筆）`
+                                  : st === "not_found" ? "➖ 查無紀錄"
+                                  : `❌ 異常（${c.anomalies?.length || 0}）`;
+                        return (
+                          <div key={k} style={{ fontSize: 11, paddingLeft: 8, marginTop: 2 }}>
+                            <span style={{ color: "#666" }}>{LABELS[k]}：</span>
+                            <span style={{ color }}>{tag}</span>
+                            {st === "anomaly" && (c.anomalies || []).map((a, ai) => (
+                              <div key={ai} style={{ paddingLeft: 16, color: "var(--miss-tx)", fontSize: 10.5, marginTop: 1 }}>
+                                · 應為 {a.expected}，實際 {a.found}{a.note ? `（${a.note}）` : ""}
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      })}
                     </div>
                   );
                 })}
@@ -1400,8 +1464,8 @@ function VerifyMultiModal({ allEmps, forms, mkForm, defaultItem, onClose, show }
           </>}
           {step === "upload" && <>
             <button className="btn" onClick={() => setStep("select")}>← 返回</button>
-            <button className="btn blue" onClick={doVerify} disabled={loading}>
-              {loading ? <span className="spinner" /> : "🔍"} 開始核對 {selectedIds.size} 人
+            <button className="btn blue" onClick={doVerify} disabled={verifying}>
+              {verifying ? <span className="spinner" /> : "🔍"} 開始核對 {selectedIds.size} 人
             </button>
           </>}
           {step === "result" && <button className="btn blue" onClick={onClose}>關閉</button>}
