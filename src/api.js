@@ -43,7 +43,7 @@ export const importFiles     = (files)         => {
   files.forEach(f => fd.append("files", f));
   return req("POST", "/api/import-files", fd, true);
 };
-export const getEmployeeFiles = (empEn)        => req("GET", `/api/employee-files/${encodeURIComponent(empEn)}`);
+export const getEmployeeFiles = (empEn, period = "") => req("GET", `/api/employee-files/${encodeURIComponent(empEn)}${period ? "?period=" + encodeURIComponent(period) : ""}`);
 export const previewFileUrl   = (empEn, filePath) => `${BASE}/api/preview-file/${encodeURIComponent(empEn)}/${filePath.split("/").map(encodeURIComponent).join("/")}`;
 export const downloadZip      = (empEn)        => req("GET", `/api/download-zip/${encodeURIComponent(empEn)}`);
 export const downloadAllZip   = ()             => req("GET", "/api/download-all-zip");

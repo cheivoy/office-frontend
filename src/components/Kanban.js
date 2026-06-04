@@ -550,7 +550,7 @@ export default function Kanban() {
   const onSelectEmp = (id) => {
     setSelId(id); setRpOpen(true);
     const emp = kanban.find(e => e.id === id);
-    if (emp) run(() => getEmployeeFiles(emp.en), r => setFiles(r.files || []), () => setFiles([]));
+    if (emp) run(() => getEmployeeFiles(emp.en, fullPeriod), r => setFiles(r.files || []), () => setFiles([]));
   };
 
   const updRow = (eid, key, idx, field, val) => {
