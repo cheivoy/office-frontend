@@ -612,7 +612,7 @@ export default function Kanban() {
   const isDirty = dirtyForms.size > 0 || dirtyProgress;
 
   return (
-    <div className="app-root">
+    <div className="kanban-page">
 
       {/* ACTION BAR */}
       <div className="action-bar">
