@@ -108,7 +108,7 @@ export const verifyAll = (empName, tabData, travelFile, otFile, essFile) => {
   if (travelFile) fd.append("travel_file", travelFile);
   if (otFile)     fd.append("ot_file", otFile);
   if (essFile)    fd.append("ess_file", essFile);
-  return req("POST", "/api/verify/all", fd, true);
+  return req("POST", "/api/verify/all", fd, true, 60000);
 };
 
 // ── Utility ──────────────────────────────────────────────────────

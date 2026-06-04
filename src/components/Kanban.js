@@ -5,8 +5,9 @@ import {
   clearAll, clearInbox, clearDepartments, deleteFile,
   moveFile, uploadToEmployee,
   getAllForms, saveForm, saveFormsBulk,
-  getAllProgress, saveProgressBulk, warmup, verifyAll
+  getAllProgress, saveProgressBulk, warmup
 } from "../api";
+import { readWorkbook, verifyEmployee } from "../verify";
 import { useToast, useApi, useDropdown } from "../hooks";
 import WriteModal from "./WriteModal";
 import DownloadModal from "./DownloadModal";
@@ -1311,47 +1312,46 @@ function VerifyMultiModal({ allEmps, forms, mkForm, defaultItem, onClose, show }
     if (!travelFile && !otFile && !essFile) { show("請至少上傳一個核對檔案", "err"); return; }
 
     setVerifying(true);
-    show("核對中…（首次可能需喚醒後端）", "info");
+    show("核對中…（於本機解析，不上傳）", "info");
 
-    // Build the tab payload for one employee from their filled form
     const buildTab = (emp) => {
       const f = forms[emp.id] || mkForm();
-      const stripSet = arr => (Array.isArray(arr) ? arr : []);
-      return {
-        ess: stripSet(f.ess),
-        ns:  stripSet(f.ns),
-        ot:  stripSet(f.ot),
-        ta:  stripSet(f.ta),
-      };
+      const arr = a => (Array.isArray(a) ? a : []);
+      return { ess: arr(f.ess), ns: arr(f.ns), ot: arr(f.ot), ta: arr(f.ta) };
     };
 
-    // Backend verifies one employee per call; fire them in parallel.
-    const settled = await Promise.allSettled(
-      empsToVerify.map(emp =>
-        verifyAll(emp.cn || emp.en, buildTab(emp), travelFile, otFile, essFile)
-          .then(res => ({ en: emp.en, res }))
-      )
-    );
+    try {
+      // Parse each uploaded workbook ONCE, then reuse across all employees.
+      const workbooks = {};
+      if (travelFile) workbooks.travel = await readWorkbook(travelFile);
+      if (otFile)     workbooks.ot     = await readWorkbook(otFile);
+      if (essFile)    workbooks.ess    = await readWorkbook(essFile);
 
-    const collected = {};
-    let okCount = 0, errCount = 0;
-    settled.forEach((s, i) => {
-      const emp = empsToVerify[i];
-      if (s.status === "fulfilled") {
-        collected[emp.en] = s.value.res;     // { travel?, ot?, ns?, ess? } each a VerifyResult dict
-        okCount++;
-      } else {
-        collected[emp.en] = { error: s.reason?.message || "核對失敗" };
-        errCount++;
+      const collected = {};
+      let anomalyCount = 0;
+      for (const emp of empsToVerify) {
+        try {
+          const r = verifyEmployee(workbooks, emp.en, emp.cn || "", buildTab(emp));
+          collected[emp.en] = r;
+          if (Object.values(r).some(c => c.status === "anomaly")) anomalyCount++;
+        } catch (e) {
+          collected[emp.en] = { error: e.message || "解析失敗" };
+        }
+        // yield to keep UI responsive on large lists
+        await new Promise(res => setTimeout(res, 0));
       }
-    });
 
-    setResults(collected);
-    setStep("result");
-    setVerifying(false);
-    show(errCount
-      ? `核對完成：${okCount} 成功、${errCount} 失敗`
-      : `✅ 已核對 ${okCount} 名員工`, errCount ? "info" : "ok");
+      setResults(collected);
+      setStep("result");
+      show(anomalyCount
+        ? `核對完成：${empsToVerify.length} 人，${anomalyCount} 人有異常`
+        : `✅ 核對完成：${empsToVerify.length} 人全部正常`,
+        anomalyCount ? "info" : "ok");
+    } catch (e) {
+      show(`核對失敗：${e.message || "檔案無法解析"}`, "err");
+    } finally {
+      setVerifying(false);
+    }
   };
 
   const selectedEmps = allEmps.filter(e => selectedIds.has(e.id));
