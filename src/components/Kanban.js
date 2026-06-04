@@ -318,8 +318,22 @@ export default function Kanban() {
         const merged   = mergeByTimestamp(localRaw, remote);
         cacheWriteForms(merged);
         setForms(deserializeFormsWithKanban(merged, kanban));
+        // Re-mark any local entry not yet persisted (missing on server, or local newer)
+        // as dirty, so a page refresh doesn't silently drop unsynced data.
+        const pending = new Set();
+        Object.keys(localRaw).forEach(empEn => {
+          const localTs  = localRaw[empEn]?.updated_at || "";
+          const remoteTs = remote[empEn]?.updated_at   || "";
+          if (!remote[empEn] || localTs > remoteTs) pending.add(empEn);
+        });
+        if (pending.size) setDirtyForms(prev => new Set([...prev, ...pending]));
       })
-      .catch(() => {});
+      .catch(() => {
+        // Backend unreachable — treat all cached forms as dirty so nothing is lost
+        const localRaw = cacheReadForms();
+        const keys = Object.keys(localRaw);
+        if (keys.length) setDirtyForms(prev => new Set([...prev, ...keys]));
+      });
     getAllProgress()
       .then(remote => {
         if (!remote || typeof remote !== "object") return;
@@ -537,7 +551,7 @@ export default function Kanban() {
       const emp = kanban.find(e => e.id === eid);
       if (emp) {
         const cached = cacheReadForms();
-        cached[emp.en] = { ...f, checkedSecs: [...(f.checkedSecs || [])] };
+        cached[emp.en] = { ...f, checkedSecs: [...(f.checkedSecs || [])], updated_at: new Date().toISOString().slice(0, 19) };
         cacheWriteForms(cached);
       }
       return next;
