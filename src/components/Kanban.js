@@ -979,7 +979,7 @@ function buildGrouped(list, flat, selId, getStatus, cycleStatus, onSelect, progr
         rows.push(
           <tr key={`prog-${unitKey}`} className="prog-row">
             <td colSpan={flat.length + 2} style={{ padding: "8px 12px", background: "var(--b50)" }}>
-              <ProgressBar unitKey={unitKey} proj={g.proj} unit={g.unit} progress={progress} setProgress={setProgressDirty} />
+              <ProgressBar unitKey={unitKey} proj={g.proj} unit={g.unit} progress={progress} setProgress={setProgress} />
             </td>
           </tr>
         );
