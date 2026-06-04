@@ -6,15 +6,15 @@ import "./App.css";
 export default function App() {
   const [page, setPage] = useState("kanban");
   return (
-    <div>
+    <div className="app-root">
       <nav className="top-nav">
         <div className="nav-logo">⚙ <span>自動化管理系統</span></div>
         <div className="nav-tabs">
-          <button className={`nav-tab ${page==="kanban"?"active":""}`} onClick={()=>setPage("kanban")}>缺件看板</button>
-          <button className={`nav-tab ${page==="people"?"active":""}`} onClick={()=>setPage("people")}>人員管理</button>
+          <button className={`nav-tab ${page === "kanban" ? "active" : ""}`} onClick={() => setPage("kanban")}>缺件看板</button>
+          <button className={`nav-tab ${page === "people" ? "active" : ""}`} onClick={() => setPage("people")}>人員管理</button>
         </div>
       </nav>
-      {page==="kanban" ? <Kanban /> : <PeoplePage />}
+      {page === "kanban" ? <Kanban /> : <PeoplePage />}
     </div>
   );
 }
