@@ -1288,7 +1288,6 @@ function VerifyMultiModal({ allEmps, forms, mkForm, defaultItem, onClose, show }
   const [essFile, setEssFile] = useState(null);
   const [results, setResults] = useState(null);
   const [step, setStep] = useState("select"); // select | upload | result
-  const { loading } = useApi();
 
   const filteredEmps = allEmps.filter(e => {
     const u = (e.unit || "").toLowerCase(); const n = (e.cn + e.en).toLowerCase();
