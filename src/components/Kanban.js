@@ -5,7 +5,7 @@ import {
   clearAll, clearInbox, clearDepartments, deleteFile,
   moveFile, uploadToEmployee,
   getAllForms, saveForm, saveFormsBulk,
-  getAllProgress, saveProgressBulk
+  getAllProgress, saveProgressBulk, warmup
 } from "../api";
 import { useToast, useApi, useDropdown } from "../hooks";
 import WriteModal from "./WriteModal";
@@ -22,7 +22,7 @@ const COLS = [
 ];
 const STATUS_CYCLE = ["ok", "miss", "na"];
 const LEAVE_TYPES = ["sick leave", "personal leave", "annual leave", "official leave", "other"];
-const mkForm = () => ({ workdays: "", checkedSecs: new Set(["tr"]), ess: [], ot: [], ta: [], leave: [] });
+const mkForm = () => ({ workdays: "", checkedSecs: new Set(["tr"]), ess: [], ns: [], ot: [], ta: [], leave: [] });
 
 // ── Progress tracking definitions ──────────────────────────────────────────
 const PROGRESS_DEFS = {
@@ -379,7 +379,7 @@ export default function Kanban() {
       .catch(() => {});
   }, [kanban.length]); // eslint-disable-line
 
-  useEffect(() => { handleScan(); }, []);// eslint-disable-line
+  useEffect(() => { warmup(); handleScan(); }, []);// eslint-disable-line
 
   const handleScan = () => run(
     () => scanInboxWithPeriod(fullPeriod),
@@ -426,88 +426,105 @@ export default function Kanban() {
     }
   };
 
-  // Sync all dirty forms + all progress at once
+  // Sync all dirty forms + all progress at once.
+  // Optimistic: local cache is already written on every edit, so we give instant
+  // feedback and run the network calls in the background without freezing the UI.
   const syncAll = async () => {
+    const hasForms = dirtyForms.size > 0;
+    const hasProgress = dirtyProgress;
+    if (!hasForms && !hasProgress) { show("沒有需要同步的變更", "info"); return; }
+
+    // Snapshot what we're about to send (so later edits during the request aren't lost)
+    const ts = stampNow();
+    const formsToSend = new Set(dirtyForms);
+
     setSyncLoading(true);
+    show("同步中…（資料已先存在本機）", "info");
+
+    // Build forms payload
+    const buildFormsPayload = () => {
+      const p = {};
+      formsToSend.forEach(empEn => {
+        const emp = kanban.find(e => e.en === empEn);
+        if (!emp) return;
+        const raw = serializeForms({ [emp.id]: forms[emp.id] || mkForm() }, kanban);
+        p[empEn] = { ...raw[empEn], updated_at: ts };
+      });
+      return p;
+    };
+
+    // Build progress + statuses payload
+    const buildProgressPayload = () => {
+      const stamped = {};
+      Object.keys(progress).forEach(k => { stamped[k] = { ...progress[k], updated_at: ts }; });
+      const statusByEn = {};
+      Object.keys(statuses).forEach(id => {
+        const e = kanban.find(x => String(x.id) === String(id));
+        if (e) statusByEn[e.en] = statuses[id];
+      });
+      if (Object.keys(statusByEn).length) stamped["__statuses"] = { ...statusByEn, updated_at: ts };
+      return stamped;
+    };
+
+    // Fire both bulk calls in parallel
+    const formsPayload = hasForms ? buildFormsPayload() : null;
+    const progressPayload = hasProgress ? buildProgressPayload() : null;
+
+    const tasks = [];
+    tasks.push(formsPayload && Object.keys(formsPayload).length
+      ? saveFormsBulk(formsPayload) : Promise.resolve(null));
+    tasks.push(progressPayload && Object.keys(progressPayload).length
+      ? saveProgressBulk(progressPayload) : Promise.resolve(null));
+
     try {
-      const ts = stampNow();
-      let formsSavedCount = 0, formsSkippedCount = 0;
+      const [fResult, pResult] = await Promise.all(tasks);
 
-      // Only send dirty employees
-      if (dirtyForms.size > 0) {
-        const dirtyPayload = {};
-        dirtyForms.forEach(empEn => {
-          const emp = kanban.find(e => e.en === empEn);
-          if (!emp) return;
-          const raw = serializeForms({ [emp.id]: forms[emp.id] || mkForm() }, kanban);
-          dirtyPayload[empEn] = { ...raw[empEn], updated_at: ts };
-        });
-        const result = await saveFormsBulk(dirtyPayload);
-        formsSavedCount  = result.saved_count  || 0;
-        formsSkippedCount = result.skipped_count || 0;
-
-        // Update cache for saved entries
+      // Forms result
+      let savedCount = 0, skipped = [];
+      if (fResult) {
+        savedCount = fResult.saved_count || 0;
+        skipped = fResult.skipped || [];
         const cached = cacheReadForms();
-        (result.saved || []).forEach(empEn => { if (dirtyPayload[empEn]) cached[empEn] = dirtyPayload[empEn]; });
+        (fResult.saved || []).forEach(en => { if (formsPayload[en]) cached[en] = formsPayload[en]; });
         cacheWriteForms(cached);
-
-        // Clear dirty only for successfully saved
         setDirtyForms(prev => {
           const s = new Set(prev);
-          (result.saved || []).forEach(en => s.delete(en));
+          (fResult.saved || []).forEach(en => s.delete(en));
           return s;
         });
+      }
 
-        // If some were skipped (conflict), pull fresh data for those
-        if (result.skipped?.length > 0) {
-          const fresh = await getAllForms(fullPeriod);
-          const newForms = { ...forms };
-          const newCache = cacheReadForms();
-          result.skipped.forEach(empEn => {
-            if (fresh[empEn]) {
-              const emp = kanban.find(e => e.en === empEn);
-              if (emp) {
-                newForms[emp.id] = {
-                  ...fresh[empEn],
-                  checkedSecs: Array.isArray(fresh[empEn].checkedSecs)
-                    ? new Set(fresh[empEn].checkedSecs) : new Set(["tr"])
-                };
-              }
-              newCache[empEn] = fresh[empEn];
+      // Progress result
+      let progressMsg = "";
+      if (pResult) {
+        cacheWriteProgress(progressPayload);
+        setDirtyProgress(false);
+        progressMsg = `，進度/狀態 ${pResult.saved_count || 0} 筆`;
+      }
+
+      // Handle conflicts (rare) — pull fresh in background
+      if (skipped.length > 0) {
+        getAllForms(fullPeriod).then(fresh => {
+          const newForms = { ...forms }, newCache = cacheReadForms();
+          skipped.forEach(en => {
+            if (fresh[en]) {
+              const emp = kanban.find(e => e.en === en);
+              if (emp) newForms[emp.id] = {
+                ...fresh[en],
+                checkedSecs: Array.isArray(fresh[en].checkedSecs) ? new Set(fresh[en].checkedSecs) : new Set(["tr"])
+              };
+              newCache[en] = fresh[en];
             }
           });
-          setForms(newForms);
-          cacheWriteForms(newCache);
-        }
+          setForms(newForms); cacheWriteForms(newCache);
+        }).catch(() => {});
       }
 
-      // Sync progress + manual statuses (both ride the progress channel).
-      let progressMsg = "";
-      if (dirtyProgress) {
-        const ts2 = stampNow();
-        const stamped = {};
-        Object.keys(progress).forEach(k => { stamped[k] = { ...progress[k], updated_at: ts2 }; });
-        // Pack manual statuses (keyed by emp.en) under a reserved key so they persist server-side too
-        const statusByEn = {};
-        Object.keys(statuses).forEach(id => {
-          const e = kanban.find(x => String(x.id) === String(id));
-          if (e) statusByEn[e.en] = statuses[id];
-        });
-        if (Object.keys(statusByEn).length) {
-          stamped["__statuses"] = { ...statusByEn, updated_at: ts2 };
-        }
-        if (Object.keys(stamped).length) {
-          const pResult = await saveProgressBulk(stamped);
-          cacheWriteProgress(stamped);
-          progressMsg = `，進度/狀態 ${pResult.saved_count || 0} 筆`;
-        }
-        setDirtyProgress(false);
-      }
-
-      const skipMsg = formsSkippedCount > 0 ? `（${formsSkippedCount} 筆有衝突已從後端更新）` : "";
-      show(`✅ 同步完成：表單 ${formsSavedCount} 筆${progressMsg} ${skipMsg}`, "ok");
+      const skipMsg = skipped.length > 0 ? `（${skipped.length} 筆有衝突已更新）` : "";
+      show(`✅ 同步完成：表單 ${savedCount} 筆${progressMsg} ${skipMsg}`, "ok");
     } catch (e) {
-      show(`同步失敗：${e.message}`, "err");
+      // Local data is safe; dirty flags stay set so user can retry
+      show(`同步失敗（資料已存本機，稍後可重試）：${e.message}`, "err");
     } finally {
       setSyncLoading(false);
     }
@@ -625,7 +642,7 @@ export default function Kanban() {
   const updRow = (eid, key, idx, field, val) => {
     const f = getForm(eid); const rows = [...(f[key] || [])];
     rows[idx] = { ...rows[idx], [field]: val };
-    if ((field === "tstart" || field === "tend") && (key === "ess" || key === "ot"))
+    if ((field === "tstart" || field === "tend") && (key === "ess" || key === "ot" || key === "ns"))
       rows[idx].hours = calcH(rows[idx].tstart, rows[idx].tend);
     setForm(eid, { ...f, [key]: rows });
   };
@@ -1502,10 +1519,11 @@ function FormTab({ emp, form, activeG, onToggleSec, onAddRow, onRmRow, onUpdRow,
   const [syncing, setSyncing] = useState(false);
   const checked = form.checkedSecs || new Set(["tr"]);
   const essTotal = form.ess.reduce((a, r) => a + (parseFloat(r.amount) || 0), 0);
-  const nsTotal = form.ess.reduce((a, r) => a + (parseFloat(r.ns_amount) || 0), 0);
+  const nsTotal = (form.ns || []).reduce((a, r) => a + (parseFloat(r.amount) || 0), 0);
   const taTotal = form.ta.reduce((a, r) => a + (parseFloat(r.amount) || 0), 0);
   const warns = [];
   if (activeG.has("ess") && checked.has("ess") && !form.ess.length) warns.push("ESS 已勾選但未填寫");
+  if (activeG.has("ns") && checked.has("ns") && !(form.ns || []).length) warns.push("NS 已勾選但未填寫");
   if (activeG.has("ot") && checked.has("ot") && !form.ot.length) warns.push("OT 已勾選但未填寫");
   if (activeG.has("travel") && checked.has("travel") && !form.ta.length) warns.push("差旅已勾選但未填寫");
   if (activeG.has("leave") && checked.has("leave") && !form.leave.length) warns.push("請假已勾選但未填寫");
@@ -1534,22 +1552,35 @@ function FormTab({ emp, form, activeG, onToggleSec, onAddRow, onRmRow, onUpdRow,
         <input type="number" min="0" max="31" step="0.5" value={form.workdays} onChange={e => onSetWD(e.target.value)} />
         <span style={{ fontSize: 11, color: "#8AB2D8" }}>天</span>
       </div>
-      <SecBlock id="ess" title="ESS / Night Shift" checked={checked.has("ess")} onToggle={() => onToggleSec("ess")} onAdd={() => onAddRow("ess")} badge={checked.has("ess") ? (form.ess.length > 0 ? `ESS ${Math.round(essTotal).toLocaleString()} / NS ${Math.round(nsTotal).toLocaleString()}` : "待填") : null}>
+      <SecBlock id="ess" title="ESS" checked={checked.has("ess")} onToggle={() => onToggleSec("ess")} onAdd={() => onAddRow("ess")} badge={checked.has("ess") ? (form.ess.length > 0 ? `ESS ${Math.round(essTotal).toLocaleString()}` : "待填") : null}>
         {form.ess.map((r, i) => (
           <div key={i} className="entry"><button className="rm-btn" onClick={() => onRmRow("ess", i)}>×</button>
             <div className="fl">
-              <div className="fg"><label>日期</label><input type="date" value={r.date || ""} onChange={e => onUpdRow("ess", i, "date", e.target.value)} /></div>
-              <div className="fg"><label>開始</label><input type="time" value={r.tstart || ""} onChange={e => onUpdRow("ess", i, "tstart", e.target.value)} /></div>
-              <div className="fg"><label>結束</label><input type="time" value={r.tend || ""} onChange={e => onUpdRow("ess", i, "tend", e.target.value)} /></div>
+              <div className="fg"><label>開始日期</label><input type="date" value={r.from_date || ""} onChange={e => onUpdRow("ess", i, "from_date", e.target.value)} /></div>
+              <div className="fg"><label>結束日期</label><input type="date" value={r.to_date || ""} onChange={e => onUpdRow("ess", i, "to_date", e.target.value)} /></div>
             </div>
             <div className="fl">
-              <div className="fg"><label>時數</label><input readOnly value={r.hours || ""} placeholder="自動" /></div>
               <div className="fg"><label>ESS金額</label><input type="number" value={r.amount || ""} onChange={e => onUpdRow("ess", i, "amount", e.target.value)} /></div>
-              <div className="fg"><label>NS金額</label><input type="number" value={r.ns_amount || ""} onChange={e => onUpdRow("ess", i, "ns_amount", e.target.value)} /></div>
             </div>
           </div>
         ))}
-        {form.ess.length > 0 && <div className="subtotal">ESS NT${Math.round(essTotal).toLocaleString()}　NS NT${Math.round(nsTotal).toLocaleString()}</div>}
+        {form.ess.length > 0 && <div className="subtotal">ESS NT${Math.round(essTotal).toLocaleString()}</div>}
+      </SecBlock>
+      <SecBlock id="ns" title="NS 夜班" checked={checked.has("ns")} onToggle={() => onToggleSec("ns")} onAdd={() => onAddRow("ns")} badge={checked.has("ns") ? (form.ns.length > 0 ? `NS ${Math.round(nsTotal).toLocaleString()}` : "待填") : null}>
+        {form.ns.map((r, i) => (
+          <div key={i} className="entry"><button className="rm-btn" onClick={() => onRmRow("ns", i)}>×</button>
+            <div className="fl">
+              <div className="fg"><label>日期</label><input type="date" value={r.date || ""} onChange={e => onUpdRow("ns", i, "date", e.target.value)} /></div>
+              <div className="fg"><label>開始</label><input type="time" value={r.tstart || ""} onChange={e => onUpdRow("ns", i, "tstart", e.target.value)} /></div>
+              <div className="fg"><label>結束</label><input type="time" value={r.tend || ""} onChange={e => onUpdRow("ns", i, "tend", e.target.value)} /></div>
+            </div>
+            <div className="fl">
+              <div className="fg"><label>時數</label><input readOnly value={r.hours || ""} placeholder="自動" /></div>
+              <div className="fg"><label>NS金額</label><input type="number" value={r.amount || ""} onChange={e => onUpdRow("ns", i, "amount", e.target.value)} /></div>
+            </div>
+          </div>
+        ))}
+        {form.ns.length > 0 && <div className="subtotal">NS NT${Math.round(nsTotal).toLocaleString()}</div>}
       </SecBlock>
       <SecBlock id="ot" title="OT 加班" checked={checked.has("ot")} onToggle={() => onToggleSec("ot")} onAdd={() => onAddRow("ot")} badge={checked.has("ot") ? (form.ot.length > 0 ? `${form.ot.length}筆` : "待填") : null}>
         {form.ot.map((r, i) => (
