@@ -537,13 +537,13 @@ body {
 
 /* ── TABLE ── */
 .table-wrap {
-  flex: 1;
+  flex: 1 1 0;
+  display: block;
   overflow-y: auto !important;
-  /* 強制允許垂直滾動 */
-  height: calc(100vh - var(--nav-h) - var(--ab-h) - var(--pr-h));
-  /* 動態扣除上方所有導覽列的高度 */
+  /* 用 flex 計算高度，不要硬寫 100vh（會忽略 toolbar 高度而溢出，
+     導致 sticky 表頭跑出容器、蓋住側邊搜尋欄） */
   min-height: 0;
-  /* 允許 flex 項目縮小，避免被撐開 */
+  height: auto;
 }
 
 table {
