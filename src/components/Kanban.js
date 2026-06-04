@@ -890,8 +890,6 @@ export default function Kanban() {
       {Toast}
     </div>
   );
-    </div>
-  );
 }
 
 // ── Progress Bar Component ───────────────────────────────────────────────────
