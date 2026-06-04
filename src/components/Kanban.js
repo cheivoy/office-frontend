@@ -244,6 +244,7 @@ function deserializeForms(raw) {
 // ── localStorage cache helpers ────────────────────────────────────────────────
 const LS_FORMS    = "kanban_forms_v2";
 const LS_PROGRESS = "kanban_progress_v2";
+const LS_STATUSES = "kanban_statuses_v2";
 
 function cacheReadForms() {
   try { return JSON.parse(localStorage.getItem(LS_FORMS) || "{}"); } catch { return {}; }
@@ -256,6 +257,12 @@ function cacheReadProgress() {
 }
 function cacheWriteProgress(data) {
   try { localStorage.setItem(LS_PROGRESS, JSON.stringify(data)); } catch {}
+}
+function cacheReadStatuses() {
+  try { return JSON.parse(localStorage.getItem(LS_STATUSES) || "{}"); } catch { return {}; }
+}
+function cacheWriteStatuses(data) {
+  try { localStorage.setItem(LS_STATUSES, JSON.stringify(data)); } catch {}
 }
 // Merge: take whichever entry has the newer updated_at
 function mergeByTimestamp(local, remote) {
@@ -307,6 +314,17 @@ export default function Kanban() {
     if (Object.keys(cachedProgress).length) setProgress(cachedProgress);
   }, []); // eslint-disable-line
 
+  // Step 1b: once kanban (emp list) is available, restore statuses from cache.
+  // Cache is keyed by emp.en; state is keyed by emp.id — map en→id here.
+  useEffect(() => {
+    if (!kanban.length) return;
+    const byEn = cacheReadStatuses();
+    if (!Object.keys(byEn).length) return;
+    const byId = {};
+    kanban.forEach(e => { if (byEn[e.en]) byId[e.id] = byEn[e.en]; });
+    if (Object.keys(byId).length) setStatuses(prev => ({ ...byId, ...prev }));
+  }, [kanban.length]); // eslint-disable-line
+
   // Step 2: after kanban loads (has emp list), fetch backend data for current period
   // and merge with local cache — remote wins if newer timestamp
   useEffect(() => {
@@ -340,7 +358,23 @@ export default function Kanban() {
         const localProg = cacheReadProgress();
         const merged    = mergeByTimestamp(localProg, remote);
         cacheWriteProgress(merged);
-        setProgress(merged);
+        // Pull manual statuses back out (stored under reserved __statuses key)
+        const remoteStatuses = merged["__statuses"];
+        if (remoteStatuses && typeof remoteStatuses === "object") {
+          const localByEn = cacheReadStatuses();
+          const byId = {};
+          kanban.forEach(e => {
+            const v = remoteStatuses[e.en];
+            // Local edits win if present (avoids clobbering unsynced clicks)
+            if (localByEn[e.en]) byId[e.id] = localByEn[e.en];
+            else if (v && typeof v === "object") byId[e.id] = v;
+          });
+          if (Object.keys(byId).length) setStatuses(prev => ({ ...byId, ...prev }));
+        }
+        // Don't render the reserved key as a real progress unit
+        const progressOnly = { ...merged };
+        delete progressOnly["__statuses"];
+        setProgress(progressOnly);
       })
       .catch(() => {});
   }, [kanban.length]); // eslint-disable-line
@@ -447,16 +481,27 @@ export default function Kanban() {
         }
       }
 
-      // Sync progress (all at once — progress conflicts are less critical)
+      // Sync progress + manual statuses (both ride the progress channel).
       let progressMsg = "";
-      if (dirtyProgress && Object.keys(progress).length > 0) {
+      if (dirtyProgress) {
         const ts2 = stampNow();
         const stamped = {};
         Object.keys(progress).forEach(k => { stamped[k] = { ...progress[k], updated_at: ts2 }; });
-        const pResult = await saveProgressBulk(stamped);
-        cacheWriteProgress(stamped);
+        // Pack manual statuses (keyed by emp.en) under a reserved key so they persist server-side too
+        const statusByEn = {};
+        Object.keys(statuses).forEach(id => {
+          const e = kanban.find(x => String(x.id) === String(id));
+          if (e) statusByEn[e.en] = statuses[id];
+        });
+        if (Object.keys(statusByEn).length) {
+          stamped["__statuses"] = { ...statusByEn, updated_at: ts2 };
+        }
+        if (Object.keys(stamped).length) {
+          const pResult = await saveProgressBulk(stamped);
+          cacheWriteProgress(stamped);
+          progressMsg = `，進度/狀態 ${pResult.saved_count || 0} 筆`;
+        }
         setDirtyProgress(false);
-        progressMsg = `，進度 ${pResult.saved_count || 0} 筆`;
       }
 
       const skipMsg = formsSkippedCount > 0 ? `（${formsSkippedCount} 筆有衝突已從後端更新）` : "";
@@ -525,8 +570,18 @@ export default function Kanban() {
       const emp = kanban.find(x => x.id === eid);
       const cur = (prev[eid] || emp?.status || {})[col] || "na";
       const next = STATUS_CYCLE[(STATUS_CYCLE.indexOf(cur) + 1) % STATUS_CYCLE.length];
-      return { ...prev, [eid]: { ...(prev[eid] || emp?.status || {}), [col]: next } };
+      const updated = { ...prev, [eid]: { ...(prev[eid] || emp?.status || {}), [col]: next } };
+      // Persist immediately to localStorage (survives refresh) keyed by emp.en
+      const byEn = {};
+      Object.keys(updated).forEach(id => {
+        const e = kanban.find(x => String(x.id) === String(id));
+        if (e) byEn[e.en] = updated[id];
+      });
+      cacheWriteStatuses(byEn);
+      return updated;
     });
+    // Mark dirty so it syncs to backend with the next 同步全部
+    setDirtyProgress(true);
   };
   // Issue 5 fix: when a period is selected (df), read status from periodStatus[df]
   // This way employees with NO files for that period still appear (as "na" / missing)
