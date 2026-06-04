@@ -2,7 +2,7 @@
 // In production, REACT_APP_API_URL is set to your Railway backend URL
 const BASE = process.env.REACT_APP_API_URL || "";
 
-async function req(method, path, body, isForm = false) {
+async function req(method, path, body, isForm = false, timeoutMs = 20000) {
   const opts = { method, headers: {} };
   if (body) {
     if (isForm) {
@@ -12,7 +12,19 @@ async function req(method, path, body, isForm = false) {
       opts.body = JSON.stringify(body);
     }
   }
-  const res = await fetch(`${BASE}${path}`, opts);
+  // Abort the request if it hangs (e.g. Railway cold start gone wrong)
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  opts.signal = ctrl.signal;
+  let res;
+  try {
+    res = await fetch(`${BASE}${path}`, opts);
+  } catch (e) {
+    clearTimeout(timer);
+    if (e.name === "AbortError") throw new Error("連線逾時，請稍後再試（後端可能正在喚醒）");
+    throw e;
+  }
+  clearTimeout(timer);
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(err.detail || res.statusText);
@@ -21,6 +33,9 @@ async function req(method, path, body, isForm = false) {
   if (ct.includes("application/json")) return res.json();
   return res.blob(); // file download
 }
+
+// Wake the Railway container early so later writes aren't stuck behind a cold start.
+export const warmup = () => req("GET", "/api/health", null, false, 30000).catch(() => {});
 
 // ── People ───────────────────────────────────────────────────────
 export const getPeople      = ()         => req("GET",    "/api/people");
