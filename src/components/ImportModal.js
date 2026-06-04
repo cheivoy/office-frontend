@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from "react";
-import { importFiles, importFilesForce, scanInboxWithPeriod } from "../api";
+import { scanInboxWithPeriod } from "../api";
 import { useApi } from "../hooks";
 
 const BASE = process.env.REACT_APP_API_URL || "";
@@ -204,14 +204,6 @@ export default function ImportModal({ onClose, show, onScanDone }) {
     setStep("done");
     onScanDone && onScanDone(scanResult);
     show("歸檔完成", "ok");
-  };
-
-  // ── Issue 4: re-open inbox file list ──
-  const goToInbox = () => {
-    onClose();
-    // Trigger inbox view — parent component handles this if they pass a callback;
-    // for now we show a toast hint.
-    show("請使用「掃描」按鈕重新處理 Inbox 中的檔案", "info");
   };
 
   const FILE_TYPE_LABEL = {

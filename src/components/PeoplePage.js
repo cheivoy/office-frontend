@@ -11,7 +11,6 @@ export default function PeoplePage() {
   const [people,         setPeople]        = useState([]);
   const [editing,        setEditing]       = useState(null);
   const [draft,          setDraft]         = useState(blank);
-  const [importPeriod,   setImportPeriod]  = useState("");   // "" = global, else "2026-P05"
   const [importYear,     setImportYear]    = useState("2026");
   const [importMonth,    setImportMonth]   = useState("");
   const [rosterPeriods,  setRosterPeriods] = useState([]);
@@ -71,13 +70,6 @@ export default function PeoplePage() {
     setViewPeriod(p);
     load(p);
   };
-
-  const grouped = people.reduce((acc, p) => {
-    const k = `${p.proj||"其他"} / ${p.unit||"—"}`;
-    if (!acc[k]) acc[k] = [];
-    acc[k].push(p);
-    return acc;
-  }, {});
 
   return (
     <div className="people-page">

@@ -480,7 +480,7 @@ export default function Kanban() {
     else if (sortMode === "date-asc") list.sort((a, b) => (a.uploadDate || "").localeCompare(b.uploadDate || ""));
     else list.sort((a, b) => (b.uploadDate || "").localeCompare(a.uploadDate || ""));
     return list;
-  }, [kanban, filt, q, df, sortMode]);
+  }, [kanban, filt, q, df, sortMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const tree = {};
   kanban.forEach(e => {
