@@ -290,7 +290,7 @@ body {
   transition: width .2s ease;
   overflow: hidden;
   position: relative;
-  z-index: 5
+  z-index: 250
 }
 
 .sidebar.collapsed {
