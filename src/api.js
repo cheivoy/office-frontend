@@ -31,7 +31,14 @@ async function req(method, path, body, isForm = false, timeoutMs = 20000) {
   }
   const ct = res.headers.get("content-type") || "";
   if (ct.includes("application/json")) return res.json();
-  return res.blob(); // file download
+  const blob = await res.blob();
+  // If the server attached a write-report header, surface it on the blob object
+  // so callers can show "寫入 N 筆，跳過 M 筆…".
+  const rep = res.headers.get("X-Write-Report");
+  if (rep) {
+    try { blob.writeReport = JSON.parse(decodeURIComponent(rep)); } catch {}
+  }
+  return blob; // file download
 }
 
 // Wake the Railway container early so later writes aren't stuck behind a cold start.
@@ -157,8 +164,19 @@ export const batchWriteNokiaCost = (period, sheetName, formsJson, templateFile) 
 };
 
 // ── xlsx Preview ─────────────────────────────────────────────────
+// Encode each path segment (not the slashes) so nested paths work.
 export const previewXlsxUrl = (empEn, filePath) =>
-  `${BASE}/api/preview-xlsx/${encodeURIComponent(empEn)}/${encodeURIComponent(filePath)}`;
+  `${BASE}/api/preview-xlsx/${encodeURIComponent(empEn)}/${filePath.split("/").map(encodeURIComponent).join("/")}`;
+
+// Fetch the parsed xlsx as an HTML table string for inline rendering.
+export const previewXlsx = async (empEn, filePath) => {
+  const res = await fetch(previewXlsxUrl(empEn, filePath));
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || res.statusText);
+  }
+  return res.text();
+};
 
 // ── Download filtered ────────────────────────────────────────────
 export const downloadFiltered = (q, period, ids) => {
@@ -206,6 +224,9 @@ export const getForm            = (empEn)         => req("GET",  `/api/forms/${e
 export const saveForm           = (empEn, data)   => req("PUT",  `/api/forms/${encodeURIComponent(empEn)}`, data);
 export const saveFormsBulk      = (data)          => req("PUT",  "/api/forms", data);
 export const deleteFormApi      = (empEn)         => req("DELETE",`/api/forms/${encodeURIComponent(empEn)}`);
+// 跨月歷史：取得某員工 `before` 月份之前的所有 tab 記錄（重複申請偵測用）
+export const getFormHistory     = (empEn, before = "") =>
+  req("GET", `/api/forms/history/${encodeURIComponent(empEn)}${before ? "?before=" + encodeURIComponent(before) : ""}`);
 
 export const getAllProgress      = ()              => req("GET",  "/api/progress");
 export const saveProgressUnit   = (unitKey, data) => req("PUT",  `/api/progress/${encodeURIComponent(unitKey)}`, data);

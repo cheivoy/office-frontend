@@ -18,27 +18,52 @@ export default function WriteModal({ forms, onClose, show }) {
   const [period,  setPeriod]  = useState("P05");
   const [sheet,   setSheet]   = useState("");
   const [file,    setFile]    = useState(null);
+  const [report,  setReport]  = useState(null);
   const { loading, run }      = useApi();
 
   const tgt = TARGETS.find(t => t.id === target);
   const year = new Date().getFullYear();
   const fullPeriod = `${year}-${period}`;
 
+  // checkedSecs may be a Set in memory → JSON.stringify turns it into {}.
+  // Convert every form's Set fields to plain arrays before sending.
+  const cleanForms = () => {
+    const out = {};
+    Object.keys(forms || {}).forEach(en => {
+      const f = forms[en] || {};
+      out[en] = { ...f, checkedSecs: Array.isArray(f.checkedSecs) ? f.checkedSecs : [...(f.checkedSecs || [])] };
+    });
+    return out;
+  };
+
   const doWrite = () => {
     if (tgt.needsFile && !file) { show("請先上傳當月範本", "err"); return; }
 
     run(async () => {
+      const safeForms = cleanForms();
       let blob;
-      if      (target === "cht_nokia")  blob = await batchWriteChtNokia(fullPeriod, forms);
-      else if (target === "cht_dk")     blob = await batchWriteChtDk(fullPeriod, forms);
-      else if (target === "wipro")      blob = await batchWriteWipro(fullPeriod, sheet, forms, file);
-      else if (target === "project_f")  blob = await batchWriteProjectF(fullPeriod, forms, file);
-      else if (target === "nokia_cost") blob = await batchWriteNokiaCost(fullPeriod, sheet, forms, file);
+      if      (target === "cht_nokia")  blob = await batchWriteChtNokia(fullPeriod, safeForms);
+      else if (target === "cht_dk")     blob = await batchWriteChtDk(fullPeriod, safeForms);
+      else if (target === "wipro")      blob = await batchWriteWipro(fullPeriod, sheet, safeForms, file);
+      else if (target === "project_f")  blob = await batchWriteProjectF(fullPeriod, safeForms, file);
+      else if (target === "nokia_cost") blob = await batchWriteNokiaCost(fullPeriod, sheet, safeForms, file);
       const ext = target === "cht_nokia" ? "zip" : "xlsx";
       downloadBlob(blob, `${target}_${fullPeriod}.${ext}`);
-      return "ok";
+      return blob.writeReport || null;
     },
-    () => { show("批量寫入完成，已下載 ✓", "ok"); onClose(); },
+    (rep) => {
+      if (rep) {
+        setReport(rep);
+        const skipped = rep.skipped?.length || 0;
+        show(skipped
+          ? `寫入 ${rep.written} 筆，跳過 ${skipped} 筆（詳見下方）`
+          : `✅ 寫入完成：${rep.written} 筆，已下載`,
+          skipped ? "info" : "ok");
+      } else {
+        show("批量寫入完成，已下載 ✓", "ok");
+        onClose();
+      }
+    },
     e  => show(`寫入失敗：${e}`, "err")
     );
   };
@@ -116,13 +141,53 @@ export default function WriteModal({ forms, onClose, show }) {
               ✓ 此報表使用伺服器固定範本，無需上傳
             </div>
           )}
+
+          {report && (
+            <div style={{marginTop:12,padding:"10px 12px",border:"1px solid var(--bd)",
+                         borderRadius:8,background:"#fff"}}>
+              <div style={{fontSize:12,fontWeight:600,color:"var(--b800)",marginBottom:6}}>
+                寫入報告（{fullPeriod}）
+              </div>
+              <div style={{fontSize:12,marginBottom:6}}>
+                ✅ 成功寫入 <b>{report.written}</b> 筆
+                {typeof report.people_total === "number" &&
+                  <span style={{color:"#888"}}>（名單共 {report.people_total} 人）</span>}
+              </div>
+              {report.skipped?.length > 0 && (
+                <>
+                  <div style={{fontSize:12,fontWeight:500,color:"var(--miss-tx)",marginBottom:4}}>
+                    ⚠ 跳過 {report.skipped.length} 筆：
+                  </div>
+                  <div style={{maxHeight:160,overflowY:"auto",fontSize:11}}>
+                    {report.skipped.map((s,i) => (
+                      <div key={i} style={{padding:"3px 0",borderBottom:"1px solid var(--bd)"}}>
+                        <b>{s.emp}</b> — {s.reason}
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+              {report.pm_files_missing?.length > 0 && (
+                <div style={{marginTop:8,padding:"6px 8px",background:"var(--miss-bg, #FBEAEA)",
+                             borderRadius:6,fontSize:11,color:"var(--miss-tx)"}}>
+                  缺少範本的 PM：{report.pm_files_missing.map(m => m.pm).join("、")}
+                  <div style={{color:"#888",marginTop:2}}>請見 templates/README_範本放置說明.md</div>
+                </div>
+              )}
+              {!report.skipped?.length && (
+                <div style={{fontSize:11,color:"var(--ok-tx)"}}>全部寫入成功，無跳過項目。</div>
+              )}
+            </div>
+          )}
         </div>
         <div className="modal-footer">
-          <button className="btn" onClick={onClose}>取消</button>
-          <button className="btn blue" onClick={doWrite}
-                  disabled={loading || (tgt.needsFile && !file)}>
-            {loading ? <span className="spinner"/> : "📥"} 批量寫入 {fullPeriod}
-          </button>
+          <button className="btn" onClick={onClose}>{report ? "關閉" : "取消"}</button>
+          {!report && (
+            <button className="btn blue" onClick={doWrite}
+                    disabled={loading || (tgt.needsFile && !file)}>
+              {loading ? <span className="spinner"/> : "📥"} 批量寫入 {fullPeriod}
+            </button>
+          )}
         </div>
       </div>
     </div>

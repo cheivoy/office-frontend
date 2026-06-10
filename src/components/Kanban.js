@@ -5,9 +5,11 @@ import {
   clearAll, clearInbox, clearDepartments, deleteFile,
   moveFile, uploadToEmployee,
   getAllForms, saveForm, saveFormsBulk,
-  getAllProgress, saveProgressBulk, warmup
+  getAllProgress, saveProgressBulk, warmup,
+  previewXlsx, getFormHistory
 } from "../api";
 import { readWorkbook, verifyEmployee } from "../verify";
+import { addVerifyResult } from "../verifyStore";
 import { useToast, useApi, useDropdown } from "../hooks";
 import WriteModal from "./WriteModal";
 import DownloadModal from "./DownloadModal";
@@ -399,7 +401,7 @@ export default function Kanban() {
     const emp = kanban.find(e => e.en === empEn);
     if (!emp) return;
     const raw = serializeForms({ [emp.id]: forms[emp.id] || mkForm() }, kanban);
-    const entry = { ...raw[empEn], updated_at: stampNow() };
+    const entry = { ...raw[empEn], period: fullPeriod, updated_at: stampNow() };
     try {
       const saved = await saveForm(empEn, entry);
       // Update cache with server-confirmed data
@@ -451,7 +453,7 @@ export default function Kanban() {
         const emp = kanban.find(e => e.en === empEn);
         if (!emp) return;
         const raw = serializeForms({ [emp.id]: forms[emp.id] || mkForm() }, kanban);
-        p[empEn] = { ...raw[empEn], updated_at: ts };
+        p[empEn] = { ...raw[empEn], period: fullPeriod, updated_at: ts };
       });
       return p;
     };
@@ -665,7 +667,13 @@ export default function Kanban() {
     } else if (f.type === "pdf") {
       setModal({ type: "pdf", name: f.name, url: previewFileUrl(selEmp.en, fp) });
     } else {
-      setModal({ type: "xlsx", name: f.name, url: previewFileUrl(selEmp.en, fp) });
+      // xlsx / xls → fetch a rendered HTML table from the backend
+      try {
+        const html = await previewXlsx(selEmp.en, fp);
+        setModal({ type: "xlsx", name: f.name, html });
+      } catch (e) {
+        show(`無法預覽此 xlsx：${e.message || e}`, "err");
+      }
     }
   };
 
@@ -954,7 +962,7 @@ export default function Kanban() {
       {modal?.type === "write" && <WriteModal forms={Object.fromEntries(kanban.map(e => [e.en, forms[e.id] || mkForm()]))} onClose={() => setModal(null)} show={show} />}
       {modal?.type === "download" && <DownloadModal allEmps={kanban} onClose={() => setModal(null)} show={show} />}
       {modal?.type === "verify-multi" && (
-        <VerifyMultiModal allEmps={kanban} forms={forms} mkForm={mkForm} defaultItem={modal.item} onClose={() => setModal(null)} show={show} />
+        <VerifyMultiModal allEmps={kanban} forms={forms} mkForm={mkForm} period={fullPeriod} defaultItem={modal.item} onClose={() => setModal(null)} show={show} />
       )}
       {modal?.type === "pdf" && (
         <div className="modal-overlay" onClick={() => setModal(null)}>
@@ -962,6 +970,19 @@ export default function Kanban() {
             <div className="modal-hd"><span className="modal-hd-t">{modal.name}</span>
               <button className="btn sm" onClick={() => setModal(null)}>✕</button></div>
             <div className="modal-body"><iframe src={modal.url} title={modal.name} /></div>
+          </div>
+        </div>
+      )}
+      {modal?.type === "xlsx" && (
+        <div className="modal-overlay" onClick={() => setModal(null)}>
+          <div className="modal wide" onClick={e => e.stopPropagation()}>
+            <div className="modal-hd"><span className="modal-hd-t">📊 {modal.name}</span>
+              <button className="btn sm" onClick={() => setModal(null)}>✕</button></div>
+            <div className="modal-body" style={{ overflow: "auto", maxHeight: "70vh" }}>
+              {modal.html
+                ? <div dangerouslySetInnerHTML={{ __html: modal.html }} />
+                : <div style={{ padding: 16, color: "#888", fontSize: 12 }}>載入中…</div>}
+            </div>
           </div>
         </div>
       )}
@@ -1282,7 +1303,7 @@ function empRow(e, flat, selId, getStatus, cycleStatus, onSelect) {
 }
 
 // ── Multi-employee Verify Modal ──────────────────────────────────────────────
-function VerifyMultiModal({ allEmps, forms, mkForm, defaultItem, onClose, show }) {
+function VerifyMultiModal({ allEmps, forms, mkForm, period, defaultItem, onClose, show }) {
   const [unitFilter, setUnitFilter] = useState("");
   const [nameFilter, setNameFilter] = useState("");
   const [selectedIds, setSelectedIds] = useState(new Set());
@@ -1333,9 +1354,19 @@ function VerifyMultiModal({ allEmps, forms, mkForm, defaultItem, onClose, show }
       let anomalyCount = 0;
       for (const emp of empsToVerify) {
         try {
-          const r = verifyEmployee(workbooks, emp.en, emp.cn || "", buildTab(emp));
+          // 取得此員工『本月之前』的歷史 tab 記錄，做跨月重複偵測
+          let history = {};
+          try { history = await getFormHistory(emp.en, period); } catch { history = {}; }
+
+          const r = verifyEmployee(workbooks, emp.en, emp.cn || "", buildTab(emp), history);
           collected[emp.en] = r;
-          if (Object.values(r).some(c => c.status === "anomaly")) anomalyCount++;
+
+          // 寫入核對記錄暫存區（含 異常 / 遺漏 / 重複）
+          addVerifyResult({ period, empEn: emp.en, empCn: emp.cn || "" }, r);
+
+          const hasIssue = Object.values(r).some(c =>
+            c.status === "anomaly" || (c.missing || []).length || (c.duplicates || []).length);
+          if (hasIssue) anomalyCount++;
         } catch (e) {
           collected[emp.en] = { error: e.message || "解析失敗" };
         }
@@ -1346,7 +1377,7 @@ function VerifyMultiModal({ allEmps, forms, mkForm, defaultItem, onClose, show }
       setResults(collected);
       setStep("result");
       show(anomalyCount
-        ? `核對完成：${empsToVerify.length} 人，${anomalyCount} 人有異常`
+        ? `核對完成：${empsToVerify.length} 人，${anomalyCount} 人有異常/遺漏/重複（已存入核對記錄）`
         : `✅ 核對完成：${empsToVerify.length} 人全部正常`,
         anomalyCount ? "info" : "ok");
     } catch (e) {

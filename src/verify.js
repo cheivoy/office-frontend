@@ -127,19 +127,32 @@ export function verifyTravel(wb, empEn, empCn, tabTa) {
   const ws = wb.Sheets[wb.SheetNames[0]];
   const rows = sheetRows(ws);
   const NAME = 1, STATUS = 17, START = 10, END = 11, TOTAL = 28;
-  const res = { emp: empEn, status: "not_found", matched_rows: 0, anomalies: [] };
+  const res = { emp: empEn, status: "not_found", matched_rows: 0, anomalies: [],
+                template_dates: [], keyed_dates: [], details: [] };
 
   const matched = dedup(
     [...iterApproved(rows, NAME, STATUS, empEn, empCn)],
     r => `${parseDate(r[START])}|${parseDate(r[END])}`
   );
+  // Collect every approved date the template covers (for gap detection)
+  const tplDateSet = new Set();
+  for (const r of matched) {
+    for (const d of expandDates({ from_date: parseDate(r[START]), to_date: parseDate(r[END]) })) tplDateSet.add(d);
+  }
+  res.template_dates = [...tplDateSet].sort();
+
   if (!matched.length) return res;
   res.matched_rows = matched.length;
   res.status = "ok";
 
   for (const t of tabTa) {
     const from = t.from_date || "", to = t.to_date || "", amt = num(t.amount);
+    for (const d of expandDates(t)) res.keyed_dates.push(d);
     const hit = matched.find(r => parseDate(r[START]) === from && parseDate(r[END]) === to);
+    res.details.push({
+      keyed: { from, to, amount: amt },
+      approval: hit ? { from: parseDate(hit[START]), to: parseDate(hit[END]), amount: num(hit[TOTAL]) } : null,
+    });
     if (!hit) {
       res.status = "anomaly";
       res.anomalies.push({ field: "travel_date", expected: `${from} ~ ${to}`,
@@ -159,7 +172,8 @@ export function verifyTravel(wb, empEn, empCn, tabTa) {
 // ── OT ────────────────────────────────────────────────────────────────────────
 export function verifyOt(wb, empEn, empCn, tabOt) {
   const ws = wb.Sheets["OT Data"];
-  const res = { emp: empEn, status: "not_found", matched_rows: 0, anomalies: [] };
+  const res = { emp: empEn, status: "not_found", matched_rows: 0, anomalies: [],
+                template_dates: [], keyed_dates: [], details: [] };
   if (!ws) return res;
   const rows = sheetRows(ws);
   const NAME = 1, STATUS = 5, DATE = 17, TIME = 18, HRS = 20;
@@ -168,12 +182,14 @@ export function verifyOt(wb, empEn, empCn, tabOt) {
     [...iterApproved(rows, NAME, STATUS, empEn, empCn)],
     r => `${parseDate(r[DATE])}|${String(r[TIME] || "").trim()}`
   );
+  res.template_dates = [...new Set(matched.map(r => parseDate(r[DATE])).filter(Boolean))].sort();
   if (!matched.length) return res;
   res.matched_rows = matched.length;
   res.status = "ok";
 
   for (const t of tabOt) {
     const date = t.date || "", start = t.tstart || "", end = t.tend || "", hrs = num(t.hours);
+    if (date) res.keyed_dates.push(date);
     let hit = null;
     for (const r of matched) {
       if (parseDate(r[DATE]) !== date) continue;
@@ -181,6 +197,10 @@ export function verifyOt(wb, empEn, empCn, tabOt) {
       if (rt && rt[0] === start && rt[1] === end) { hit = r; break; }
       if (rt === null) { hit = r; break; }
     }
+    res.details.push({
+      keyed: { date, start, end, hours: hrs },
+      approval: hit ? { date: parseDate(hit[DATE]), time: String(hit[TIME] || ""), hours: num(hit[HRS]) } : null,
+    });
     if (!hit) {
       res.status = "anomaly";
       res.anomalies.push({ field: "ot_record", expected: `${date} ${start}-${end}`,
@@ -200,7 +220,8 @@ export function verifyOt(wb, empEn, empCn, tabOt) {
 // ── Night Shift ────────────────────────────────────────────────────────────────
 export function verifyNs(wb, empEn, empCn, tabNs) {
   const ws = wb.Sheets["OT_Shift_01June26"];
-  const res = { emp: empEn, status: "not_found", matched_rows: 0, anomalies: [] };
+  const res = { emp: empEn, status: "not_found", matched_rows: 0, anomalies: [],
+                template_dates: [], keyed_dates: [], details: [] };
   if (!ws) return res;
   const rows = sheetRows(ws);
   const NAME = 1, STATUS = 5, DATE = 16, TIME = 17;
@@ -209,6 +230,7 @@ export function verifyNs(wb, empEn, empCn, tabNs) {
     [...iterApproved(rows, NAME, STATUS, empEn, empCn)],
     r => `${parseDate(r[DATE])}|${String(r[TIME] || "").trim()}`
   );
+  res.template_dates = [...new Set(matched.map(r => parseDate(r[DATE])).filter(Boolean))].sort();
   if (!matched.length) return res;
   res.matched_rows = matched.length;
   res.status = "ok";
@@ -217,6 +239,7 @@ export function verifyNs(wb, empEn, empCn, tabNs) {
   const nsEntries = tabNs.filter(e => num(e.amount) > 0 || num(e.ns_amount) > 0);
   for (const t of nsEntries) {
     const date = t.date || "", start = t.tstart || "", end = t.tend || "";
+    if (date) res.keyed_dates.push(date);
     let hit = null;
     for (const r of matched) {
       if (parseDate(r[DATE]) !== date) continue;
@@ -224,6 +247,10 @@ export function verifyNs(wb, empEn, empCn, tabNs) {
       if (rt && rt[0] === start && rt[1] === end) { hit = r; break; }
       if (rt === null) { hit = r; break; }
     }
+    res.details.push({
+      keyed: { date, start, end, amount: num(t.amount) || num(t.ns_amount) },
+      approval: hit ? { date: parseDate(hit[DATE]), time: String(hit[TIME] || "") } : null,
+    });
     if (!hit) {
       res.status = "anomaly";
       res.anomalies.push({ field: "ns_record", expected: `${date} ${start}-${end}`,
@@ -236,7 +263,8 @@ export function verifyNs(wb, empEn, empCn, tabNs) {
 // ── ESS ROTA ───────────────────────────────────────────────────────────────────
 export function verifyEss(wb, empEn, empCn, tabEss, tabEssTotal) {
   const ws = wb.Sheets["明細"];
-  const res = { emp: empEn, status: "not_found", matched_rows: 0, anomalies: [] };
+  const res = { emp: empEn, status: "not_found", matched_rows: 0, anomalies: [],
+                template_dates: [], keyed_dates: [], details: [] };
   if (!ws) return res;
   const rows = sheetRows(ws);
   const NAME = 1, DATE = 3, AMT = 7;
@@ -253,12 +281,14 @@ export function verifyEss(wb, empEn, empCn, tabEss, tabEssTotal) {
     if (d) rota[d] = (rota[d] || 0) + amt;
   }
   const rotaDates = Object.keys(rota);
+  res.template_dates = rotaDates.sort();
   if (!rotaDates.length) return res;
   res.matched_rows = rotaDates.length;
   res.status = "ok";
 
   const tabDates = new Set();
   for (const e of tabEss) for (const d of expandDates(e)) tabDates.add(d);
+  res.keyed_dates = [...tabDates].sort();
 
   for (const d of [...tabDates].sort()) {
     if (!(d in rota)) {
@@ -279,18 +309,69 @@ export function verifyEss(wb, empEn, empCn, tabEss, tabEssTotal) {
   return res;
 }
 
+// ── gap (遺漏) + cross-month duplicate (重複) detection ────────────────────────
+
+// Given a verify category result (with template_dates & keyed_dates),
+// return dates the approval template has but the user did NOT key in.
+function findMissing(catResult) {
+  if (!catResult) return [];
+  const keyed = new Set(catResult.keyed_dates || []);
+  return (catResult.template_dates || []).filter(d => d && !keyed.has(d)).sort();
+}
+
+// Build the set of dates a historical form covers for one category key.
+// catKey: "ta" | "ess" | "ot" | "ns"
+function datesFromForm(form, catKey) {
+  const out = [];
+  const arr = Array.isArray(form?.[catKey]) ? form[catKey] : [];
+  for (const e of arr) {
+    if (catKey === "ot" || catKey === "ns") {
+      if (e.date) out.push(parseDate(e.date));
+    } else {
+      for (const d of expandDates(e)) out.push(d);
+    }
+  }
+  return out;
+}
+
+// Compare this month's keyed dates against prior months' history.
+// history: { "2026-P04": form, ... }. Returns [{date, period}] duplicates.
+function findDuplicates(keyedDates, history, catKey) {
+  const dups = [];
+  const keyed = new Set(keyedDates || []);
+  for (const [period, form] of Object.entries(history || {})) {
+    const prior = new Set(datesFromForm(form, catKey));
+    for (const d of keyed) {
+      if (prior.has(d)) dups.push({ date: d, period });
+    }
+  }
+  return dups;
+}
+
 // ── orchestrator: verify one employee against whichever files were provided ────
 // workbooks: { travel?, ot?, ess? } already-parsed SheetJS workbooks (shared across emps)
-export function verifyEmployee(workbooks, empEn, empCn, tab) {
+// history:   { period: form } from prior months (optional) for duplicate detection
+export function verifyEmployee(workbooks, empEn, empCn, tab, history = {}) {
   const out = {};
-  if (workbooks.travel) out.travel = verifyTravel(workbooks.travel, empEn, empCn, tab.ta || []);
+  if (workbooks.travel) {
+    out.travel = verifyTravel(workbooks.travel, empEn, empCn, tab.ta || []);
+    out.travel.missing = findMissing(out.travel);
+    out.travel.duplicates = findDuplicates(out.travel.keyed_dates, history, "ta");
+  }
   if (workbooks.ot) {
     out.ot = verifyOt(workbooks.ot, empEn, empCn, tab.ot || []);
+    out.ot.missing = findMissing(out.ot);
+    out.ot.duplicates = findDuplicates(out.ot.keyed_dates, history, "ot");
+
     out.ns = verifyNs(workbooks.ot, empEn, empCn, tab.ns || tab.ess || []);
+    out.ns.missing = findMissing(out.ns);
+    out.ns.duplicates = findDuplicates(out.ns.keyed_dates, history, "ns");
   }
   if (workbooks.ess) {
     const essTotal = (tab.ess || []).reduce((a, e) => a + num(e.amount), 0);
     out.ess = verifyEss(workbooks.ess, empEn, empCn, tab.ess || [], essTotal);
+    out.ess.missing = findMissing(out.ess);
+    out.ess.duplicates = findDuplicates(out.ess.keyed_dates, history, "ess");
   }
   return out;
 }
