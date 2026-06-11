@@ -665,11 +665,11 @@ export default function Kanban() {
       try { const d = await previewEml(selEmp.en, fp); setModal({ type: "eml", name: f.name, data: d }); }
       catch { show("無法預覽此 eml", "err"); }
     } else if (f.type === "pdf") {
-      setModal({ type: "pdf", name: f.name, url: previewFileUrl(selEmp.en, fp) });
+      setModal({ type: "pdf", name: f.name, url: previewFileUrl(selEmp.en, fp, fullPeriod) });
     } else {
       // xlsx / xls → fetch a rendered HTML table from the backend
       try {
-        const html = await previewXlsx(selEmp.en, fp);
+        const html = await previewXlsx(selEmp.en, fp, fullPeriod);
         setModal({ type: "xlsx", name: f.name, html });
       } catch (e) {
         show(`無法預覽此 xlsx：${e.message || e}`, "err");
@@ -1313,6 +1313,20 @@ function VerifyMultiModal({ allEmps, forms, mkForm, period, defaultItem, onClose
   const [results, setResults] = useState(null);
   const [step, setStep] = useState("select"); // select | upload | result
 
+  // 核對日期範圍：approval 檔可能含整年資料，讓使用者只核對某時段。
+  // 預設用 period 推出的當月範圍（P01→1月…P12→12月）。
+  const defRange = (() => {
+    const m = /(\d{4})-P(\d{2})/.exec(period || "");
+    if (!m) return { from: "", to: "" };
+    const y = +m[1], mo = +m[2];
+    if (mo < 1 || mo > 12) return { from: "", to: "" };
+    const last = new Date(y, mo, 0).getDate();
+    const p2 = n => String(n).padStart(2, "0");
+    return { from: `${y}-${p2(mo)}-01`, to: `${y}-${p2(mo)}-${p2(last)}` };
+  })();
+  const [dateFrom, setDateFrom] = useState(defRange.from);
+  const [dateTo, setDateTo]     = useState(defRange.to);
+
   const filteredEmps = allEmps.filter(e => {
     const u = (e.unit || "").toLowerCase(); const n = (e.cn + e.en).toLowerCase();
     return (!unitFilter || u.includes(unitFilter.toLowerCase())) &&
@@ -1350,19 +1364,34 @@ function VerifyMultiModal({ allEmps, forms, mkForm, period, defaultItem, onClose
       if (otFile)     workbooks.ot     = await readWorkbook(otFile);
       if (essFile)    workbooks.ess    = await readWorkbook(essFile);
 
+      // 核對範圍自動往前涵蓋『上一個月』：
+      // approval 檔過濾用「上月1號 ~ 我選的迄日」，這樣跨月遺漏（例如上月底沒 key in 的核准日）也抓得到。
+      const effRange = (() => {
+        if (!dateFrom && !dateTo) return null;          // 不限
+        let from = dateFrom;
+        if (dateFrom) {
+          const d = new Date(dateFrom + "T00:00:00");
+          const prev = new Date(d.getFullYear(), d.getMonth() - 1, 1); // 上個月1號
+          const p2 = n => String(n).padStart(2, "0");
+          from = `${prev.getFullYear()}-${p2(prev.getMonth() + 1)}-01`;
+        }
+        return { from, to: dateTo };
+      })();
+
       const collected = {};
       let anomalyCount = 0;
       for (const emp of empsToVerify) {
         try {
-          // 取得此員工『本月之前』的歷史 tab 記錄，做跨月重複偵測
+          // 取得此員工『本月之前』的歷史 tab 記錄，供跨月重複/遺漏比對使用（含上月 key in）
           let history = {};
           try { history = await getFormHistory(emp.en, period); } catch { history = {}; }
 
-          const r = verifyEmployee(workbooks, emp.en, emp.cn || "", buildTab(emp), history);
+          const r = verifyEmployee(workbooks, emp.en, emp.cn || "", buildTab(emp), history, effRange);
           collected[emp.en] = r;
 
           // 寫入核對記錄暫存區（含 異常 / 遺漏 / 重複）
-          addVerifyResult({ period, empEn: emp.en, empCn: emp.cn || "" }, r);
+          addVerifyResult({ period, empEn: emp.en, empCn: emp.cn || "",
+                            range: effRange ? `${effRange.from || "最早"}~${effRange.to || "最晚"}（含上月）` : "整年" }, r);
 
           const hasIssue = Object.values(r).some(c =>
             c.status === "anomaly" || (c.missing || []).length || (c.duplicates || []).length);
@@ -1433,6 +1462,34 @@ function VerifyMultiModal({ allEmps, forms, mkForm, period, defaultItem, onClose
           {step === "upload" && (
             <>
               <div style={{ marginBottom: 10, fontSize: 12, color: "var(--b800)" }}>已選 {selectedEmps.length} 名員工，請上傳核對檔案：</div>
+
+              <div style={{ marginBottom: 12, padding: "10px 12px", border: "1px solid var(--bd)",
+                            borderRadius: 8, background: "var(--b50)" }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "var(--b800)", marginBottom: 6 }}>
+                  核對日期範圍
+                </div>
+                <div style={{ fontSize: 11, color: "#888", marginBottom: 8 }}>
+                  approval 檔可能包含整年資料，只核對此範圍內的紀錄。預設為當月（{period}），
+                  並會<b>自動往前涵蓋上一個月</b>以抓出跨月遺漏。
+                </div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                  <input type="date" className="di" value={dateFrom}
+                         onChange={e => setDateFrom(e.target.value)}
+                         style={{ fontSize: 12, padding: "4px 8px" }} />
+                  <span style={{ color: "#888" }}>～</span>
+                  <input type="date" className="di" value={dateTo}
+                         onChange={e => setDateTo(e.target.value)}
+                         style={{ fontSize: 12, padding: "4px 8px" }} />
+                  <button className="btn sm" onClick={() => { setDateFrom(""); setDateTo(""); }}
+                          style={{ marginLeft: 4 }}>整年/不限</button>
+                </div>
+                {(dateFrom || dateTo) && (
+                  <div style={{ fontSize: 11, color: "var(--b800)", marginTop: 6 }}>
+                    只核對 {dateFrom || "最早"} ～ {dateTo || "最晚"} 的紀錄
+                  </div>
+                )}
+              </div>
+
               <FileUploadRow label="Travel DataSheet" hint="SNDA_CNS_Taiwan_Travel_DataSheet" file={travelFile} onChange={setTravelFile} id="mv-travel" />
               <FileUploadRow label="OT / NS Form" hint="SNDA_CNS_Taiwan_OT_OR_Shift_Request_Form" file={otFile} onChange={setOtFile} id="mv-ot" note="OT 和 NS 核對使用同一個檔案" />
               <FileUploadRow label="ESS ROTA 費用統計" hint="Wipro_ESS_ROTA_2026_費用統計" file={essFile} onChange={setEssFile} id="mv-ess" />

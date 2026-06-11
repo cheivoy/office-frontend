@@ -66,7 +66,7 @@ export const importFiles     = (files)         => {
   return req("POST", "/api/import-files", fd, true);
 };
 export const getEmployeeFiles = (empEn, period = "") => req("GET", `/api/employee-files/${encodeURIComponent(empEn)}${period ? "?period=" + encodeURIComponent(period) : ""}`);
-export const previewFileUrl   = (empEn, filePath) => `${BASE}/api/preview-file/${encodeURIComponent(empEn)}/${filePath.split("/").map(encodeURIComponent).join("/")}`;
+export const previewFileUrl   = (empEn, filePath, period = "") => `${BASE}/api/preview-file/${encodeURIComponent(empEn)}/${filePath.split("/").map(encodeURIComponent).join("/")}${period ? "?period=" + encodeURIComponent(period) : ""}`;
 export const downloadZip      = (empEn)        => req("GET", `/api/download-zip/${encodeURIComponent(empEn)}`);
 export const downloadAllZip   = ()             => req("GET", "/api/download-all-zip");
 
@@ -165,12 +165,12 @@ export const batchWriteNokiaCost = (period, sheetName, formsJson, templateFile) 
 
 // ── xlsx Preview ─────────────────────────────────────────────────
 // Encode each path segment (not the slashes) so nested paths work.
-export const previewXlsxUrl = (empEn, filePath) =>
-  `${BASE}/api/preview-xlsx/${encodeURIComponent(empEn)}/${filePath.split("/").map(encodeURIComponent).join("/")}`;
+export const previewXlsxUrl = (empEn, filePath, period = "") =>
+  `${BASE}/api/preview-xlsx/${encodeURIComponent(empEn)}/${filePath.split("/").map(encodeURIComponent).join("/")}${period ? "?period=" + encodeURIComponent(period) : ""}`;
 
 // Fetch the parsed xlsx as an HTML table string for inline rendering.
-export const previewXlsx = async (empEn, filePath) => {
-  const res = await fetch(previewXlsxUrl(empEn, filePath));
+export const previewXlsx = async (empEn, filePath, period = "") => {
+  const res = await fetch(previewXlsxUrl(empEn, filePath, period));
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(err.detail || res.statusText);

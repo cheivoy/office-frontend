@@ -37,7 +37,7 @@ export function addVerifyResult(meta, result) {
     (c.anomalies || []).forEach((a, i) => {
       rows.push({
         id: `${batchId}_${cat}_a${i}`,
-        ts: now, period: meta.period, emp: meta.empCn || meta.empEn, empEn: meta.empEn,
+        ts: now, period: meta.period, range: meta.range || "", emp: meta.empCn || meta.empEn, empEn: meta.empEn,
         category: CAT_LABEL[cat] || cat, kind: "異常",
         field: a.field || "", keyed: a.found || "", template: a.expected || "",
         note: a.note || "",
@@ -48,10 +48,10 @@ export function addVerifyResult(meta, result) {
     (c.missing || []).forEach((d, i) => {
       rows.push({
         id: `${batchId}_${cat}_m${i}`,
-        ts: now, period: meta.period, emp: meta.empCn || meta.empEn, empEn: meta.empEn,
+        ts: now, period: meta.period, range: meta.range || "", emp: meta.empCn || meta.empEn, empEn: meta.empEn,
         category: CAT_LABEL[cat] || cat, kind: "遺漏",
         field: "date", keyed: "未申請", template: d,
-        note: "Approval 中有此日期，但本月未 key in",
+        note: "Approval 中有此日期，但上月+本月都未 key in",
       });
     });
 
@@ -59,7 +59,7 @@ export function addVerifyResult(meta, result) {
     (c.duplicates || []).forEach((dup, i) => {
       rows.push({
         id: `${batchId}_${cat}_d${i}`,
-        ts: now, period: meta.period, emp: meta.empCn || meta.empEn, empEn: meta.empEn,
+        ts: now, period: meta.period, range: meta.range || "", emp: meta.empCn || meta.empEn, empEn: meta.empEn,
         category: CAT_LABEL[cat] || cat, kind: "重複",
         field: "date", keyed: dup.date, template: `${dup.period} 已申請`,
         note: `此日期在 ${dup.period} 已申請過，請確認是否重複`,
@@ -82,8 +82,8 @@ export function exportJSON() {
 
 export function exportCSV() {
   const records = readAll();
-  const cols = ["ts", "period", "emp", "category", "kind", "field", "keyed", "template", "note"];
-  const head = ["核對時間", "月份", "員工", "項目", "類型", "欄位", "我key in", "範本記錄", "備註"];
+  const cols = ["ts", "period", "range", "emp", "category", "kind", "field", "keyed", "template", "note"];
+  const head = ["核對時間", "月份", "核對範圍", "員工", "項目", "類型", "欄位", "我key in", "範本記錄", "備註"];
   const esc = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
   const lines = [head.map(esc).join(",")];
   for (const r of records) lines.push(cols.map(c => esc(r[c])).join(","));

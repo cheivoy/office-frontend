@@ -89,6 +89,7 @@ export default function VerifyRecordsPage() {
                 <th style={th}>類型</th>
                 <th style={th}>員工</th>
                 <th style={th}>月份</th>
+                <th style={th}>範圍</th>
                 <th style={th}>項目</th>
                 <th style={th}>欄位</th>
                 <th style={th}>我 key in</th>
@@ -110,6 +111,7 @@ export default function VerifyRecordsPage() {
                     </td>
                     <td style={{ ...td, fontWeight: 500 }}>{r.emp}</td>
                     <td style={td}>{r.period}</td>
+                    <td style={{ ...td, color: "#888", whiteSpace: "nowrap" }}>{r.range || "—"}</td>
                     <td style={td}>{r.category}</td>
                     <td style={{ ...td, color: "#888" }}>{r.field}</td>
                     <td style={{ ...td, color: ks.tx }}>{r.keyed}</td>

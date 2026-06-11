@@ -115,6 +115,22 @@ function dedup(rows, keyFn) {
 const fmtNT = n => `NT$${Math.round(n).toLocaleString()}`;
 const num = v => parseFloat(v || 0) || 0;
 
+// ── date-range filter ────────────────────────────────────────────────────────
+// range = { from: "YYYY-MM-DD", to: "YYYY-MM-DD" } (both optional).
+// A row's date(s) count as in-range if ANY of them fall within [from, to].
+// Used so a year-long approval file can be verified one period at a time.
+function dateInRange(dateStr, range) {
+  if (!range || (!range.from && !range.to)) return true;
+  if (!dateStr) return false;
+  if (range.from && dateStr < range.from) return false;
+  if (range.to && dateStr > range.to) return false;
+  return true;
+}
+function rangeFilter(rows, getDates, range) {
+  if (!range || (!range.from && !range.to)) return rows;
+  return rows.filter(r => getDates(r).some(d => dateInRange(d, range)));
+}
+
 // ── workbook loader ────────────────────────────────────────────────────────────
 
 export async function readWorkbook(file) {
@@ -123,17 +139,20 @@ export async function readWorkbook(file) {
 }
 
 // ── Travel ──────────────────────────────────────────────────────────────────
-export function verifyTravel(wb, empEn, empCn, tabTa) {
+export function verifyTravel(wb, empEn, empCn, tabTa, range = null) {
   const ws = wb.Sheets[wb.SheetNames[0]];
   const rows = sheetRows(ws);
   const NAME = 1, STATUS = 17, START = 10, END = 11, TOTAL = 28;
   const res = { emp: empEn, status: "not_found", matched_rows: 0, anomalies: [],
                 template_dates: [], keyed_dates: [], details: [] };
 
-  const matched = dedup(
+  let matched = dedup(
     [...iterApproved(rows, NAME, STATUS, empEn, empCn)],
     r => `${parseDate(r[START])}|${parseDate(r[END])}`
   );
+  // Keep only approval rows overlapping the chosen date range
+  matched = rangeFilter(matched,
+    r => expandDates({ from_date: parseDate(r[START]), to_date: parseDate(r[END]) }), range);
   // Collect every approved date the template covers (for gap detection)
   const tplDateSet = new Set();
   for (const r of matched) {
@@ -170,7 +189,7 @@ export function verifyTravel(wb, empEn, empCn, tabTa) {
 }
 
 // ── OT ────────────────────────────────────────────────────────────────────────
-export function verifyOt(wb, empEn, empCn, tabOt) {
+export function verifyOt(wb, empEn, empCn, tabOt, range = null) {
   const ws = wb.Sheets["OT Data"];
   const res = { emp: empEn, status: "not_found", matched_rows: 0, anomalies: [],
                 template_dates: [], keyed_dates: [], details: [] };
@@ -178,10 +197,11 @@ export function verifyOt(wb, empEn, empCn, tabOt) {
   const rows = sheetRows(ws);
   const NAME = 1, STATUS = 5, DATE = 17, TIME = 18, HRS = 20;
 
-  const matched = dedup(
+  let matched = dedup(
     [...iterApproved(rows, NAME, STATUS, empEn, empCn)],
     r => `${parseDate(r[DATE])}|${String(r[TIME] || "").trim()}`
   );
+  matched = rangeFilter(matched, r => [parseDate(r[DATE])], range);
   res.template_dates = [...new Set(matched.map(r => parseDate(r[DATE])).filter(Boolean))].sort();
   if (!matched.length) return res;
   res.matched_rows = matched.length;
@@ -218,7 +238,7 @@ export function verifyOt(wb, empEn, empCn, tabOt) {
 }
 
 // ── Night Shift ────────────────────────────────────────────────────────────────
-export function verifyNs(wb, empEn, empCn, tabNs) {
+export function verifyNs(wb, empEn, empCn, tabNs, range = null) {
   const ws = wb.Sheets["OT_Shift_01June26"];
   const res = { emp: empEn, status: "not_found", matched_rows: 0, anomalies: [],
                 template_dates: [], keyed_dates: [], details: [] };
@@ -226,10 +246,11 @@ export function verifyNs(wb, empEn, empCn, tabNs) {
   const rows = sheetRows(ws);
   const NAME = 1, STATUS = 5, DATE = 16, TIME = 17;
 
-  const matched = dedup(
+  let matched = dedup(
     [...iterApproved(rows, NAME, STATUS, empEn, empCn)],
     r => `${parseDate(r[DATE])}|${String(r[TIME] || "").trim()}`
   );
+  matched = rangeFilter(matched, r => [parseDate(r[DATE])], range);
   res.template_dates = [...new Set(matched.map(r => parseDate(r[DATE])).filter(Boolean))].sort();
   if (!matched.length) return res;
   res.matched_rows = matched.length;
@@ -261,7 +282,7 @@ export function verifyNs(wb, empEn, empCn, tabNs) {
 }
 
 // ── ESS ROTA ───────────────────────────────────────────────────────────────────
-export function verifyEss(wb, empEn, empCn, tabEss, tabEssTotal) {
+export function verifyEss(wb, empEn, empCn, tabEss, tabEssTotal, range = null) {
   const ws = wb.Sheets["明細"];
   const res = { emp: empEn, status: "not_found", matched_rows: 0, anomalies: [],
                 template_dates: [], keyed_dates: [], details: [] };
@@ -277,6 +298,7 @@ export function verifyEss(wb, empEn, empCn, tabEss, tabEssTotal) {
     const cellName = row.length > NAME ? row[NAME] : null;
     if (!nameMatch(cellName, empEn, empCn)) continue;
     const d = parseDate(row.length > DATE ? row[DATE] : null);
+    if (!dateInRange(d, range)) continue;   // limit to chosen period
     const amt = num(row.length > AMT ? row[AMT] : 0);
     if (d) rota[d] = (rota[d] || 0) + amt;
   }
@@ -313,10 +335,22 @@ export function verifyEss(wb, empEn, empCn, tabEss, tabEssTotal) {
 
 // Given a verify category result (with template_dates & keyed_dates),
 // return dates the approval template has but the user did NOT key in.
-function findMissing(catResult) {
+// Missing = approval has the date, but it was NOT keyed in EITHER this month
+// (catResult.keyed_dates) OR any prior month (priorKeyed). This prevents a date
+// you already applied last month from being falsely flagged as "遺漏".
+function findMissing(catResult, priorKeyed = []) {
   if (!catResult) return [];
-  const keyed = new Set(catResult.keyed_dates || []);
+  const keyed = new Set([...(catResult.keyed_dates || []), ...priorKeyed]);
   return (catResult.template_dates || []).filter(d => d && !keyed.has(d)).sort();
+}
+
+// Collect all dates this employee keyed across prior-month history, for one category.
+function priorKeyedDates(history, catKey) {
+  const out = [];
+  for (const form of Object.values(history || {})) {
+    out.push(...datesFromForm(form, catKey));
+  }
+  return out;
 }
 
 // Build the set of dates a historical form covers for one category key.
@@ -351,26 +385,26 @@ function findDuplicates(keyedDates, history, catKey) {
 // ── orchestrator: verify one employee against whichever files were provided ────
 // workbooks: { travel?, ot?, ess? } already-parsed SheetJS workbooks (shared across emps)
 // history:   { period: form } from prior months (optional) for duplicate detection
-export function verifyEmployee(workbooks, empEn, empCn, tab, history = {}) {
+export function verifyEmployee(workbooks, empEn, empCn, tab, history = {}, range = null) {
   const out = {};
   if (workbooks.travel) {
-    out.travel = verifyTravel(workbooks.travel, empEn, empCn, tab.ta || []);
-    out.travel.missing = findMissing(out.travel);
+    out.travel = verifyTravel(workbooks.travel, empEn, empCn, tab.ta || [], range);
+    out.travel.missing = findMissing(out.travel, priorKeyedDates(history, "ta"));
     out.travel.duplicates = findDuplicates(out.travel.keyed_dates, history, "ta");
   }
   if (workbooks.ot) {
-    out.ot = verifyOt(workbooks.ot, empEn, empCn, tab.ot || []);
-    out.ot.missing = findMissing(out.ot);
+    out.ot = verifyOt(workbooks.ot, empEn, empCn, tab.ot || [], range);
+    out.ot.missing = findMissing(out.ot, priorKeyedDates(history, "ot"));
     out.ot.duplicates = findDuplicates(out.ot.keyed_dates, history, "ot");
 
-    out.ns = verifyNs(workbooks.ot, empEn, empCn, tab.ns || tab.ess || []);
-    out.ns.missing = findMissing(out.ns);
+    out.ns = verifyNs(workbooks.ot, empEn, empCn, tab.ns || tab.ess || [], range);
+    out.ns.missing = findMissing(out.ns, priorKeyedDates(history, "ns"));
     out.ns.duplicates = findDuplicates(out.ns.keyed_dates, history, "ns");
   }
   if (workbooks.ess) {
     const essTotal = (tab.ess || []).reduce((a, e) => a + num(e.amount), 0);
-    out.ess = verifyEss(workbooks.ess, empEn, empCn, tab.ess || [], essTotal);
-    out.ess.missing = findMissing(out.ess);
+    out.ess = verifyEss(workbooks.ess, empEn, empCn, tab.ess || [], essTotal, range);
+    out.ess.missing = findMissing(out.ess, priorKeyedDates(history, "ess"));
     out.ess.duplicates = findDuplicates(out.ess.keyed_dates, history, "ess");
   }
   return out;
